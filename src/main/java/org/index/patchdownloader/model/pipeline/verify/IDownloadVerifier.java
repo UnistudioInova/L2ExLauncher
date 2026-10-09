@@ -43,6 +43,9 @@ public interface IDownloadVerifier
      **/
     boolean awaitAndReport();
 
+    /** Cancels pending verification work without waiting for it to drain. */
+    default void cancel() { }
+
     /**
      * EN: The no-op verifier used when verification is disabled (both size and hash checks off): accepts every
      *     store notification silently and always reports the run clean. <br>

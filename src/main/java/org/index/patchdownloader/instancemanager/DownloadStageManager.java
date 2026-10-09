@@ -25,16 +25,30 @@ import org.index.patchdownloader.model.pipeline.retry.DownloadRetryHandler;
  **/
 public class DownloadStageManager extends AbstractStageManager
 {
-    private final HttpClient _httpClient;
-    private final List<AbstractDownloadStrategy> _strategies;
-    private final AbstractDownloadStrategy _fallback;
+    private HttpClient _httpClient;
+    private List<AbstractDownloadStrategy> _strategies;
+    private AbstractDownloadStrategy _fallback;
+    private boolean _httpClosed;
 
     private DownloadStageManager()
     {
         super(new DownloadRetryHandler());
+        rebuildHttpClient();
+    }
+
+    private void rebuildHttpClient()
+    {
         _httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
         _fallback = new SingleDownloadStrategy(_httpClient);
         _strategies = List.of(new AkumuDownloadStrategy(_httpClient), new CdnPartsDownloadStrategy(_httpClient), new SelfSplitDownloadStrategy(_httpClient), _fallback);
+        _httpClosed = false;
+    }
+
+    @Override
+    public synchronized void start(int parallelism)
+    {
+        if (_httpClosed) rebuildHttpClient();
+        super.start(parallelism);
     }
 
     @Override
@@ -82,6 +96,14 @@ public class DownloadStageManager extends AbstractStageManager
     protected DownloadFailureType classify(Throwable throwable)
     {
         return DownloadFailureType.classifyDownload(throwable);
+    }
+
+    @Override
+    public void abort()
+    {
+        super.abort();
+        _httpClient.close();
+        _httpClosed = true;
     }
 
     private static final DownloadStageManager INSTANCE = new DownloadStageManager();

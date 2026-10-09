@@ -144,6 +144,10 @@ public class PipelineCoordinator implements IPipelineSink
     public void cancel()
     {
         _cancelled.set(true);
+        _verifier.cancel();
+        DownloadStageManager.getInstance().abort();
+        DecompressStageManager.getInstance().abort();
+        StoreStageManager.getInstance().abort();
         _completionLatch.countDown();
     }
 
@@ -494,6 +498,10 @@ public class PipelineCoordinator implements IPipelineSink
         for (String notScheduled : _notScheduled)
         {
             IDummyLogger.log(IDummyLogger.ERROR, "NOT DOWNLOADED: " + notScheduled);
+        }
+        if (_cancelled.get())
+        {
+            return 1;
         }
         boolean verifyOk = _verifier.awaitAndReport();
         // Fail-CLOSED: a failed download, a file that could not be scheduled (over-threshold / un-creatable folder),

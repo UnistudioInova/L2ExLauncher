@@ -107,6 +107,12 @@ public abstract class AbstractAsyncVerifier implements IDownloadVerifier
         return terminated && errors == 0 && clean;
     }
 
+    @Override
+    public final void cancel()
+    {
+        _pool.shutdownNow();
+    }
+
     /**
      * EN: Hook run once before the pool is drained (default no-op). A strategy that verifies units spanning
      *     several files (torrent pieces) uses it for a final sweep of units no per-file event could trigger. <br>

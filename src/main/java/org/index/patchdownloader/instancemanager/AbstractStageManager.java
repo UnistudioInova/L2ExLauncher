@@ -238,6 +238,10 @@ public abstract class AbstractStageManager
     private void onResult(AbstractFileRequest task, Throwable throwable)
     {
         releaseSlot();
+        if (_state == StageState.STOPPED)
+        {
+            return;
+        }
         _sinkReported.set(Boolean.FALSE);
         try
         {
@@ -391,6 +395,14 @@ public abstract class AbstractStageManager
             }
         }
         _state = StageState.STOPPED;
+    }
+
+    /** Immediate, non-blocking shutdown used when the owning download is cancelled. */
+    public void abort()
+    {
+        _state = StageState.STOPPED;
+        _queue.clear();
+        if (_pool != null) _pool.shutdownNow();
     }
 
     /**
