@@ -5,6 +5,8 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 import org.tukaani.xz.LZMAInputStream;
 import com.formdev.flatlaf.FlatDarkLaf;
+import org.index.patchdownloader.EmbeddedNcSoftDownloader;
+import org.index.patchdownloader.enums.CDNLink;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
@@ -923,10 +925,22 @@ public final class L2ExLauncher extends JFrame {
 
     private void runNcSoftDownload(ClientConfig client, Distribution distribution, Path output,
                                    SwingWorker<?, String> worker) throws Exception {
+        CDNLink cdn = ncCdnType(client.displayName());
+        append("Using embedded NCSoft pipeline: " + cdn);
+        append("NCSoft " + cdn + " v" + distribution.version + ": downloading through the validated generator...");
+        int exit = EmbeddedNcSoftDownloader.download(cdn, Integer.parseInt(distribution.version), output,
+                line -> handleNcSoftOutput(line));
+        if (worker.isCancelled()) throw new CancellationException();
+        if (exit != 0) throw new IOException("NCSoft downloader failed with code " + exit);
+    }
+
+    /** Legacy process path retained for one release as an emergency compatibility fallback. */
+    private void runNcSoftDownloadExternal(ClientConfig client, Distribution distribution, Path output,
+                                   SwingWorker<?, String> worker) throws Exception {
         Path backend = locateNcBackend();
         if (backend == null) throw new IOException("NCSoft backend not found. Put libs/l2patch-backend.jar in the launcher folder.");
         String cdn = ncCdn(client.displayName());
-        append("Using NCSoft backend: " + backend.toAbsolutePath());
+        append("Using legacy external NCSoft backend: " + backend.toAbsolutePath());
         append("NCSoft " + cdn + " v" + distribution.version + ": downloading through the validated generator...");
         // Keep the external NCSoft worker bounded: ALL_TEMP avoids retaining large decoded
         // payloads in heap, while the heap cap prevents a single update from consuming GBs.
@@ -1034,6 +1048,10 @@ public final class L2ExLauncher extends JFrame {
         if (displayName.startsWith("[NA]")) return "NC_SOFT_AMERICA";
         if (displayName.startsWith("[JP]")) return "NC_SOFT_JAPANESE";
         return "NC_SOFT_TAIWAN";
+    }
+
+    private static CDNLink ncCdnType(String displayName) {
+        return CDNLink.valueOf(ncCdn(displayName));
     }
 
     private void setBusy(boolean busy) {

@@ -24,6 +24,7 @@ public class Controller
     private final int _patchVersion;
 
     private final GeneralLinkGenerator _fileLinkGenerator;
+    private final int _exitCode;
 
     /**
      * EN: Builds the link generator for the given CDN/version, loads its file list, and starts the
@@ -42,20 +43,25 @@ public class Controller
         if (_fileLinkGenerator == null)
         {
             IDummyLogger.log(IDummyLogger.ERROR, "Patch version is unavailable. Version: " + MainConfig.PATCH_VERSION_SOURCE + "; CDN Source: " + MainConfig.CDN_SOURCE + ";");
-            System.exit(1);
+            _exitCode = 1;
             return;
         }
         _fileLinkGenerator.load();
         if (_fileLinkGenerator.getFileMapHolder().isEmpty())
         {
             IDummyLogger.log(IDummyLogger.ERROR, "Patch version is unavailable. Version: " + MainConfig.PATCH_VERSION_SOURCE + "; CDN Source: " + MainConfig.CDN_SOURCE + ";");
-            System.exit(1);
+            _exitCode = 1;
             return;
         }
         IDummyLogger.log(IDummyLogger.INFO, "Version: " + MainConfig.PATCH_VERSION_SOURCE + "; CDN Source: " + MainConfig.CDN_SOURCE + "; Total available files: " + _fileLinkGenerator.getFileMapHolder().size() + ";");
         IDummyLogger.log(IDummyLogger.INFO, "Download list obtained. Program continue working...");
 
-        new PipelineCoordinator(_fileLinkGenerator).run();
+        _exitCode = new PipelineCoordinator(_fileLinkGenerator).run();
+    }
+
+    public int getExitCode()
+    {
+        return _exitCode;
     }
 
     /**
@@ -102,7 +108,7 @@ public class Controller
             System.exit(1);
             return;
         }
-        new Controller(MainConfig.CDN_SOURCE, MainConfig.PATCH_VERSION_SOURCE);
+        System.exit(new Controller(MainConfig.CDN_SOURCE, MainConfig.PATCH_VERSION_SOURCE).getExitCode());
     }
 
     /**

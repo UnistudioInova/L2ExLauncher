@@ -96,7 +96,7 @@ public class PipelineCoordinator implements IPipelineSink
      *     отправляет все задачи (с учётом бюджета), блокируется на защёлке завершения, затем
      *     останавливает и выходит. <br>
      **/
-    public void run()
+    public int run()
     {
         prepareTempStorage();
 
@@ -106,8 +106,7 @@ public class PipelineCoordinator implements IPipelineSink
         if (_total == 0)
         {
             IDummyLogger.log(IDummyLogger.WARNING, "Nothing to download (all files skipped or file list empty).");
-            finish();
-            return;
+            return finish();
         }
 
         wireChain();
@@ -135,7 +134,7 @@ public class PipelineCoordinator implements IPipelineSink
         {
             Thread.currentThread().interrupt();
         }
-        finish();
+        return finish();
     }
 
     /**
@@ -473,7 +472,7 @@ public class PipelineCoordinator implements IPipelineSink
      *     печатает его вердикт и один раз выходит из JVM из главного потока — ненулевой код, если хоть один файл
      *     упал, хоть один не поставлен в очередь ИЛИ верификатор признал файл/кусок битым. <br>
      **/
-    private void finish()
+    private int finish()
     {
         shutdownStages();
         int failed = _failed.get();
@@ -489,6 +488,6 @@ public class PipelineCoordinator implements IPipelineSink
         boolean verifyOk = _verifier.awaitAndReport();
         // Fail-CLOSED: a failed download, a file that could not be scheduled (over-threshold / un-creatable folder),
         // or a verification failure all leave the patch incomplete/unproven — none may report success.
-        System.exit(failed == 0 && _rejected == 0 && verifyOk ? 0 : 1);
+        return failed == 0 && _rejected == 0 && verifyOk ? 0 : 1;
     }
 }

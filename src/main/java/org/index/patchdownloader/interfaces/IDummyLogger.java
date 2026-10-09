@@ -3,9 +3,12 @@ package org.index.patchdownloader.interfaces;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Calendar;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 public interface IDummyLogger
 {
+    AtomicReference<Consumer<String>> SINK = new AtomicReference<>();
     static boolean SUPPORTED_ANSI = detectAnsiSupport();
 
     private static boolean detectAnsiSupport()
@@ -59,15 +62,16 @@ public interface IDummyLogger
             pw.close();
             logMessage += "\n" + sw.toString();
         }
-        if (requestedClass != null)
-        {
-            System.out.println(getColorByLevel(level) + getTime() + " | [" + level + "] | " + "[" + requestedClass.getSimpleName() + "]" + ": " + logMessage + getResetColor());
-        }
-        else
-        {
-            System.out.println(getColorByLevel(level) + getTime() + " | [" + level + "]: " + logMessage + getResetColor());
-        }
+        String formatted = requestedClass != null
+                ? getTime() + " | [" + level + "] | [" + requestedClass.getSimpleName() + "]: " + logMessage
+                : getTime() + " | [" + level + "]: " + logMessage;
+        Consumer<String> sink = SINK.get();
+        if (sink != null) sink.accept(formatted);
+        else System.out.println(getColorByLevel(level) + formatted + getResetColor());
     }
+
+    static void setSink(Consumer<String> sink) { SINK.set(sink); }
+    static void clearSink() { SINK.set(null); }
 
     static String getColorByLevel(String level)
     {
