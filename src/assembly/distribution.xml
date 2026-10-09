@@ -18,10 +18,6 @@
             <outputDirectory>/</outputDirectory>
         </file>
         <file>
-            <source>${project.basedir}/dist/libs/l2patch-backend.jar</source>
-            <outputDirectory>/libs</outputDirectory>
-        </file>
-        <file>
             <source>${project.basedir}/dist/images/launcher-l2.jpg</source>
             <outputDirectory>/images</outputDirectory>
         </file>

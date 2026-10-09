@@ -62,10 +62,8 @@ import java.awt.geom.RoundRectangle2D;
 import java.awt.Component;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -133,7 +131,6 @@ public final class L2ExLauncher extends JFrame {
     private final Pill versionChip = new Pill(Theme.ACCENT_SOFT, "—");
     private final Pill typeChip = new Pill(Theme.GOLD1, "—");
     private javax.swing.Timer ncSoftFileAnimation;
-    private volatile Process ncSoftProcess;
     private boolean extraGamesEnabled;
     private GradientPanel rootPanel;
     private final ModernButton refreshButton = new ModernButton("Refresh", ModernButton.Style.GHOST, ModernButton.Glyph.REFRESH);
@@ -165,12 +162,6 @@ public final class L2ExLauncher extends JFrame {
                 dispose();
                 Thread exitGuard = new Thread(() -> {
                     try { Thread.sleep(2000L); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                    Process process = ncSoftProcess;
-                    if (process != null && process.isAlive()) {
-                        ProcessHandle handle = process.toHandle();
-                        handle.descendants().forEach(ProcessHandle::destroyForcibly);
-                        handle.destroyForcibly();
-                    }
                     // Closing the window is an explicit request to terminate the launcher,
                     // including any worker that is blocked in network I/O.
                     System.exit(0);
@@ -422,23 +413,6 @@ public final class L2ExLauncher extends JFrame {
     private void stopActiveWork() {
         SwingWorker<?, ?> worker = activeWorker;
         if (worker != null) worker.cancel(true);
-        Process process = ncSoftProcess;
-        if (process != null && process.isAlive()) terminateProcessTree(process);
-    }
-
-    private void terminateProcessTree(Process process) {
-        ProcessHandle handle = process.toHandle();
-        handle.descendants().forEach(ProcessHandle::destroy);
-        handle.destroy();
-        Thread forceKiller = new Thread(() -> {
-            try { Thread.sleep(1500L); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-            if (process.isAlive()) {
-                handle.descendants().forEach(ProcessHandle::destroyForcibly);
-                handle.destroyForcibly();
-            }
-        }, "l2exlauncher-process-cleanup");
-        forceKiller.setDaemon(true);
-        forceKiller.start();
     }
 
     private void updateHero() {
@@ -934,40 +908,6 @@ public final class L2ExLauncher extends JFrame {
         if (exit != 0) throw new IOException("NCSoft downloader failed with code " + exit);
     }
 
-    /** Legacy process path retained for one release as an emergency compatibility fallback. */
-    private void runNcSoftDownloadExternal(ClientConfig client, Distribution distribution, Path output,
-                                   SwingWorker<?, String> worker) throws Exception {
-        Path backend = locateNcBackend();
-        if (backend == null) throw new IOException("NCSoft backend not found. Put libs/l2patch-backend.jar in the launcher folder.");
-        String cdn = ncCdn(client.displayName());
-        append("Using legacy external NCSoft backend: " + backend.toAbsolutePath());
-        append("NCSoft " + cdn + " v" + distribution.version + ": downloading through the validated generator...");
-        // Keep the external NCSoft worker bounded: ALL_TEMP avoids retaining large decoded
-        // payloads in heap, while the heap cap prevents a single update from consuming GBs.
-        Process process = new ProcessBuilder(javaCommand(), "-Xmx768m", "-jar", backend.toString(), "-cdn", cdn,
-                "-version", distribution.version, "-path", output.toAbsolutePath().toString(),
-                "-include_filter", "*", "-exclude_filter", "*/*.dlt;*.torrent", "-hash", "-size", "-restore",
-                "-download_mode", "ALL_TEMP")
-                .directory(ncBackendRoot(backend).toFile()).redirectErrorStream(true).start();
-        ncSoftProcess = process;
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            for (String line; (line = reader.readLine()) != null; ) {
-                if (worker.isCancelled()) { terminateProcessTree(process); throw new CancellationException(); }
-                handleNcSoftOutput(line);
-            }
-        } finally {
-            if (worker.isCancelled() && process.isAlive()) terminateProcessTree(process);
-            try { process.waitFor(2L, java.util.concurrent.TimeUnit.SECONDS); }
-            catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
-            if (process.isAlive()) terminateProcessTree(process);
-            if (ncSoftProcess == process) ncSoftProcess = null;
-        }
-        if (worker.isCancelled()) throw new CancellationException();
-        if (process.isAlive()) throw new IOException("NCSoft backend did not terminate cleanly");
-        int exit = process.exitValue();
-        if (exit != 0) throw new IOException("NCSoft downloader exited with code " + exit);
-    }
-
     private void handleNcSoftOutput(String line) {
         Matcher matcher = NCSOFT_PROGRESS.matcher(line);
         if (matcher.find()) {
@@ -1012,37 +952,6 @@ public final class L2ExLauncher extends JFrame {
         }
     }
 
-    private Path locateNcBackend() {
-        List<Path> candidates = new ArrayList<>();
-        candidates.add(Path.of("dist", "libs", "l2patch-backend.jar"));
-        candidates.add(Path.of("libs", "l2patch-backend.jar"));
-        candidates.add(Path.of("l2patch-backend.jar"));
-        try {
-            Path jar = Path.of(L2ExLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(jar)) {
-                candidates.add(jar.getParent().resolve("libs").resolve("l2patch-backend.jar"));
-                // Backward compatibility with packages that kept the backend beside the launcher.
-                candidates.add(jar.getParent().resolve("l2patch-backend.jar"));
-            } else {
-                candidates.add(jar.resolve("dist/libs/l2patch-backend.jar"));
-                if (jar.getParent() != null) candidates.add(jar.getParent().resolve("dist/libs/l2patch-backend.jar"));
-                for (Path parent = jar; parent != null; parent = parent.getParent()) {
-                    candidates.add(parent.resolve("dist/libs/l2patch-backend.jar"));
-                    candidates.add(parent.resolve("libs/l2patch-backend.jar"));
-                }
-            }
-        } catch (Exception ignored) { }
-        return candidates.stream().map(Path::toAbsolutePath).filter(Files::isRegularFile).findFirst().orElse(null);
-    }
-
-    private Path ncBackendRoot(Path backend) {
-        Path sibling = backend.getParent();
-        if (Files.isRegularFile(sibling.resolve("work/config/Main.ini"))) return sibling;
-        if (Files.isRegularFile(sibling.getParent().resolve("work/config/Main.ini"))) return sibling.getParent();
-        return sibling;
-    }
-
-    private static String javaCommand() { return Path.of(System.getProperty("java.home"), "bin", "java").toString(); }
     private static String ncCdn(String displayName) {
         if (displayName.startsWith("[KR]")) return "NC_SOFT_KOREAN";
         if (displayName.startsWith("[NA]")) return "NC_SOFT_AMERICA";
