@@ -412,6 +412,7 @@ public final class L2ExLauncher extends JFrame {
 
     private void stopActiveWork() {
         SwingWorker<?, ?> worker = activeWorker;
+        EmbeddedNcSoftDownloader.cancelActive();
         if (worker != null) worker.cancel(true);
     }
 

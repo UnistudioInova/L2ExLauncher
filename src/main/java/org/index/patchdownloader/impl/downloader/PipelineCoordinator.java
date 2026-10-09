@@ -6,6 +6,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.index.patchdownloader.config.configs.MainConfig;
 import org.index.patchdownloader.enums.DownloadMode;
@@ -50,6 +51,7 @@ public class PipelineCoordinator implements IPipelineSink
     private final AtomicInteger _failed;
     private final Queue<AbstractFileRequest> _failedFiles;
     private final CountDownLatch _completionLatch;
+    private final AtomicBoolean _cancelled;
 
     private int _total;
     private int _rejected;
@@ -83,6 +85,7 @@ public class PipelineCoordinator implements IPipelineSink
         _failed = new AtomicInteger(0);
         _failedFiles = new ConcurrentLinkedQueue<>();
         _completionLatch = new CountDownLatch(1);
+        _cancelled = new AtomicBoolean(false);
         _total = 0;
         _rejected = 0;
         _notScheduled = new ArrayList<>();
@@ -135,6 +138,13 @@ public class PipelineCoordinator implements IPipelineSink
             Thread.currentThread().interrupt();
         }
         return finish();
+    }
+
+    /** Requests cancellation without blocking the caller (typically the Swing event thread). */
+    public void cancel()
+    {
+        _cancelled.set(true);
+        _completionLatch.countDown();
     }
 
     /**
@@ -488,6 +498,6 @@ public class PipelineCoordinator implements IPipelineSink
         boolean verifyOk = _verifier.awaitAndReport();
         // Fail-CLOSED: a failed download, a file that could not be scheduled (over-threshold / un-creatable folder),
         // or a verification failure all leave the patch incomplete/unproven — none may report success.
-        return failed == 0 && _rejected == 0 && verifyOk ? 0 : 1;
+        return !_cancelled.get() && failed == 0 && _rejected == 0 && verifyOk ? 0 : 1;
     }
 }

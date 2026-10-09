@@ -3,6 +3,7 @@ package org.index.patchdownloader;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.index.patchdownloader.config.configs.MainConfig;
 import org.index.patchdownloader.enums.CDNLink;
@@ -17,12 +18,24 @@ import org.index.patchdownloader.model.linkgenerator.GeneralLinkGenerator;
  */
 public final class EmbeddedNcSoftDownloader
 {
+    private static final AtomicReference<PipelineCoordinator> ACTIVE_COORDINATOR = new AtomicReference<>();
+    private static final AtomicReference<Thread> ACTIVE_THREAD = new AtomicReference<>();
+
     private EmbeddedNcSoftDownloader() { }
+
+    public static void cancelActive()
+    {
+        PipelineCoordinator coordinator = ACTIVE_COORDINATOR.get();
+        if (coordinator != null) coordinator.cancel();
+        Thread thread = ACTIVE_THREAD.get();
+        if (thread != null) thread.interrupt();
+    }
 
     public static int download(CDNLink cdn, int version, Path output, Consumer<String> logSink) throws Exception
     {
         configure(cdn, version, output);
         IDummyLogger.setSink(logSink);
+        ACTIVE_THREAD.set(Thread.currentThread());
         try
         {
             IDummyLogger.log(IDummyLogger.INFO, "NCSoft " + cdn + " v" + version + ": loading manifest in launcher process...");
@@ -31,10 +44,14 @@ public final class EmbeddedNcSoftDownloader
             generator.load();
             if (generator.getFileMapHolder().isEmpty()) throw new IllegalStateException("NCSoft manifest is empty");
             IDummyLogger.log(IDummyLogger.INFO, "Manifest loaded: " + generator.getFileMapHolder().size() + " file(s).");
-            return new PipelineCoordinator(generator).run();
+            PipelineCoordinator coordinator = new PipelineCoordinator(generator);
+            ACTIVE_COORDINATOR.set(coordinator);
+            return coordinator.run();
         }
         finally
         {
+            ACTIVE_COORDINATOR.set(null);
+            ACTIVE_THREAD.set(null);
             IDummyLogger.clearSink();
         }
     }
