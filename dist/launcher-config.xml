@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Jogos públicos do launcher 4game/INNOVA, compilados do XML de configuração. -->
+<config EnableExtraGames="true">
+    <games>
+        <!-- NCSoft public CDN catalogs. The patch number is not the client protocol number. -->
+        <game display_name="[KR] Lineage 2 Korea (NCSoft)" source="ncsoft" patch_version="283" executable="l2.exe"/>
+        <game display_name="[NA] Lineage 2 North America (NCSoft)" source="ncsoft" patch_version="605" executable="l2.exe"/>
+        <game display_name="[JP] Lineage 2 Japan (NCSoft)" source="ncsoft" patch_version="227" executable="l2.exe"/>
+        <game display_name="[TW] Lineage 2 Taiwan (NCSoft)" source="ncsoft" patch_version="661" executable="l2.exe"/>
+        <game id="6" name="LineageII" display_name="Lineage 2 RU" executable="l2.exe" url="http://cdn.inn.ru/lineage2/patch/L2RU-p-260527-261006-1/distr/live"/>
+        <game id="6" name="LineageII PTS2" display_name="Lineage 2 RU PTS2" executable="l2.exe" environment="pts2" url="http://cdn.inn.ru/lineage2/patch/L2RU-p-260527-261006-1/distr"/>
+        <game id="8" name="PointBlank" display_name="Point Blank RU" executable="PointBlank.exe" url="http://cdn.inn.ru/pointblank/patch/pbru0-p-26_09_09_Sep1_2-2/distr/live"/>
+        <game id="10" name="Aion Classic" display_name="Aion Classic RU" executable="Aion.bin" url="http://cdn.inn.ru/aioncl/patch/aiclru-p-55260624-20261001-2/distr/live"/>
+        <game id="22" name="Blade and Soul" display_name="Blade and Soul RU" executable="no_matter.exe" url="http://cdn.inn.ru/bns/patch/LIVE-64110646-18.01/distr/live"/>
+        <game id="23" name="Blade and Soul NEO" display_name="Blade and Soul NEO RU" executable="no_matter.exe" url="http://cdn.inn.ru/bnsn/patch/NEO-151510242-32.01/distr/live"/>
+        <game id="33" name="LineageII Classic" display_name="Lineage 2 Classic RU" executable="l2.exe" url="http://cdn.inn.ru/clru/patch/CLRU-p-260527-261007-1/distr/live"/>
+        <game id="33" name="LineageII Classic PTS2" display_name="Lineage 2 Classic RU PTS2" executable="l2.exe" environment="pts2" url="http://cdn.inn.ru/clru/patch/CLRU-p-260527-261007-1/distr"/>
+        <game id="54" name="Crowfall" display_name="Crowfall RU" executable="CrowfallClient.exe" url="http://cdn.inn.ru/crow/patch/7.900-845f1e03.01/distr/live"/>
+        <game id="55" name="Black Desert Online" display_name="Black Desert Online RU" executable="bdo4game.exe" url="https://nez-o-dn.playblackdesert.com/UploadData/"/>
+        <game id="57" name="LineageII Essence" display_name="Lineage 2 Essence RU" executable="l2.exe" url="http://cdn.inn.ru/l2adru/patch/adru-p-260527-261007-3/distr/live"/>
+        <game id="57" name="LineageII Essence PTS2" display_name="Lineage 2 Essence RU PTS2" executable="l2.exe" environment="pts2" url="http://cdn.inn.ru/l2adru/patch/adru-p-260527-261007-3/distr"/>
+        <game id="58" name="Ragnarok Online Prime" display_name="Ragnarok Online Prime RU" executable="Ragexe.exe" url="http://cdn.inn.ru/rot/patch/20260929.1/distr/live"/>
+        <game id="60" name="Block N Load 2" display_name="Block N Load 2 RU" executable="bnl.exe" url="http://cdn.inn.ru/bnl2/patch/20220305.1/distr/live"/>
+        <game id="63" name="MWORU" display_name="MWO RU" executable="Bin64/MWOClient.exe" url="http://cdn.inn.ru/mworu/patch/13-CL365160.5/distr/live"/>
+        <game id="65" name="RAM Pressure" display_name="RAM Pressure RU" executable="RAMPressure.exe" url="http://cdn.inn.ru/ramru/patch/20221013.1/distr/live"/>
+        <game id="66" name="BRS" display_name="Berserk Heroes Online RU" executable="berserkheroesonline.exe" url="http://cdn.inn.ru/brs/patch/brsru0-F-05839-17/distr/live"/>
+        <game id="67" name="Stalcraft" display_name="Stalcraft RU" executable="win64/java/bin/ExensLauncher.exe" url="http://cdn.inn.ru/stalcraftru/patch/20261007.1/distr/live"/>
+        <game id="68" name="SilkRoad Online" display_name="SilkRoad Online RU" executable="sro_client.exe" url="http://cdn.inn.ru/silkru/patch/20260902.0/distr/live"/>
+        <game id="71" name="Rememento" display_name="Rememento RU" executable="no_matter.exe" url="http://cdn.inn.ru/remru/patch/remru-F-170-92173-1/distr/live"/>
+        <game id="1006" name="LineageII EU" display_name="Lineage 2 EU" executable="l2.exe" url="http://cdn.inn.ru/lineage2eu/patch/L2EU-p-260527-261006-1/distr/live"/>
+        <game id="1006" name="LineageII EU PTS2" display_name="Lineage 2 EU PTS2" executable="l2.exe" environment="pts2" url="http://cdn.inn.ru/lineage2eu/patch/L2EU-p-260527-261006-1/distr"/>
+        <game id="1054" name="Ragnarok Online Prime EU" display_name="Ragnarok Online Prime EU" executable="Ragexe.exe" url="http://cdn.inn.ru/roteu/patch/20260825.1/distr/live"/>
+        <game id="1057" name="LineageII Essence EU" display_name="Lineage 2 Essence EU" executable="l2.exe" url="http://cdn.inn.ru/adeu/patch/adeu-p-260527-261006-1/distr/live"/>
+        <game id="1057" name="LineageII Essence EU PTS2" display_name="Lineage 2 Essence EU PTS2" executable="l2.exe" environment="pts2" url="http://cdn.inn.ru/adeu/patch/adeu-p-260527-261006-1/distr"/>
+        <game id="1058" name="Royal Quest LA" display_name="Royal Quest LA" executable="rqmain.exe" url="http://cdn.inn.ru/rqla/patch/rq-20230212.02/distr/live"/>
+        <game id="1059" name="RAM Pressure Under Fire" display_name="RAM Pressure Under Fire" executable="RAMPressure.exe" url="http://cdn.inn.ru/ramla/patch/20221013.1/distr/live"/>
+        <game id="1061" name="GranSaga" display_name="GranSaga RU" executable="na.exe" url="http://cdn.inn.ru/gsru/patch/20260819.0/distr/live"/>
+    </games>
+</config>

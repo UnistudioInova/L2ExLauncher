@@ -1,0 +1,47 @@
+### IntelliJ IDEA ###
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+!/dist/
+!/dist/**
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+### Downloader output (do NOT commit — multi-GB client downloads) ###
+output/
+output_ref/
+output_akumu/
+
+### Maven/IDE generated output ###
+target/
+build/
+
+### Repo hygiene (kept on disk, not tracked) ###
+qodana.yaml
+.ai/
+*.iml
+# Keep only the build-artifact definitions under .idea; everything else is per-user IDE state.
+/.idea/*
+!/.idea/artifacts/

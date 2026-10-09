@@ -1,0 +1,37 @@
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/2.5.5"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/2.5.5 https://maven.apache.org/xsd/assembly-2.5.5.xsd">
+    <id>distribution</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <files>
+        <file>
+            <source>${project.build.directory}/${project.build.finalName}.jar</source>
+            <outputDirectory>/</outputDirectory>
+            <destName>l2exlauncher-${project.version}.jar</destName>
+        </file>
+        <file>
+            <source>${project.basedir}/dist/launcher-config.xml</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
+        <file>
+            <source>${project.basedir}/dist/libs/l2patch-backend.jar</source>
+            <outputDirectory>/libs</outputDirectory>
+        </file>
+        <file>
+            <source>${project.basedir}/dist/images/launcher-l2.jpg</source>
+            <outputDirectory>/images</outputDirectory>
+        </file>
+        <file>
+            <source>${project.basedir}/dist/images/launcher-multi.jpg</source>
+            <outputDirectory>/images</outputDirectory>
+        </file>
+        <file>
+            <source>${project.basedir}/dist/work/config/Main.ini</source>
+            <outputDirectory>/work/config</outputDirectory>
+        </file>
+    </files>
+</assembly>
