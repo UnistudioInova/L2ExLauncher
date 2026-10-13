@@ -404,7 +404,7 @@ public final class L2ExLauncher extends JFrame {
         clientBox.addActionListener(e -> refreshVersions());
         clientBox.addActionListener(e -> updateHero());
         versionBox.addActionListener(e -> updateHero());
-        refreshButton.addActionListener(e -> refreshVersions());
+        refreshButton.addActionListener(e -> refreshFourGameCatalog());
         browse.addActionListener(e -> chooseOutput());
         downloadButton.addActionListener(e -> startDownload());
         cancelButton.addActionListener(e -> stopActiveWork());
@@ -817,6 +817,65 @@ public final class L2ExLauncher extends JFrame {
                     append("Distributions found: " + list.size());
                 } catch (Exception ex) { append("Error reading versions: " + rootMessage(ex)); }
                 finally { activeWorker = null; setBusy(false); statusLabel.setText("Ready"); }
+            }
+        };
+        activeWorker.execute();
+    }
+
+    private void refreshFourGameCatalog() {
+        if (activeWorker != null) return;
+        Path config = locateLauncherConfig();
+        if (config == null) {
+            append("Cannot refresh 4game catalog: launcher-config.xml not found.");
+            return;
+        }
+        String selectedKey = clientBox.getSelectedItem() instanceof ClientConfig selected
+                ? catalogKey(selected) : "";
+        setBusy(true);
+        statusLabel.setText("Updating catalog...");
+        append("Downloading current 4game live + pts2 XML...");
+        activeWorker = new SwingWorker<List<ClientConfig>, Void>() {
+            private boolean remoteLoaded;
+
+            @Override protected List<ClientConfig> doInBackground() throws Exception {
+                String localXml = Files.readString(config);
+                extraGamesEnabled = readExtraGamesSetting(localXml);
+                List<ClientConfig> clients = new ArrayList<>(readClients(localXml).stream()
+                        .filter(ClientConfig::isNcSoft).filter(ClientConfig::enabled).toList());
+                try {
+                    clients.addAll(filterVisibleGames(updateAndReadFourGameCatalog()));
+                    remoteLoaded = true;
+                } catch (Exception remoteEx) {
+                    append("Warning: 4game catalog refresh failed; keeping local catalog: " + rootMessage(remoteEx));
+                    clients.addAll(filterVisibleGames(readClients(localXml, false).stream()
+                            .filter(ClientConfig::enabled).toList()));
+                }
+                return clients;
+            }
+
+            @Override protected void done() {
+                try {
+                    List<ClientConfig> clients = get();
+                    clientBox.setModel(new DefaultComboBoxModel<>(clients.toArray(ClientConfig[]::new)));
+                    updateBranding();
+                    append(remoteLoaded ? "4game catalog refreshed from live + pts2 XML."
+                            : "4game catalog unchanged; local fallback retained.");
+                    if (!clients.isEmpty()) {
+                        for (int i = 0; i < clients.size(); i++) {
+                            if (catalogKey(clients.get(i)).equals(selectedKey)) {
+                                clientBox.setSelectedIndex(i);
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    append("Error refreshing 4game catalog: " + rootMessage(ex));
+                } finally {
+                    activeWorker = null;
+                    setBusy(false);
+                    statusLabel.setText("Ready");
+                    refreshVersions();
+                }
             }
         };
         activeWorker.execute();
@@ -1449,7 +1508,9 @@ public final class L2ExLauncher extends JFrame {
     }
 
     private byte[] request(URI uri, Range range) throws Exception {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(Duration.ofMinutes(2)).GET();
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(Duration.ofMinutes(2))
+                .header("Cache-Control", "no-cache, no-store")
+                .header("Pragma", "no-cache").GET();
         if (range != null) builder.header("Range", "bytes=" + range.start + "-" + range.end);
         HttpResponse<byte[]> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
         int status = response.statusCode();
