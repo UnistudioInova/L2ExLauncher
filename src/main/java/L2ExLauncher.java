@@ -7,6 +7,7 @@ import org.tukaani.xz.LZMAInputStream;
 import com.formdev.flatlaf.FlatDarkLaf;
 import org.index.patchdownloader.EmbeddedNcSoftDownloader;
 import org.index.patchdownloader.enums.CDNLink;
+import org.index.patchdownloader.model.versioncheck.NcUpdateVersionClient;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
@@ -134,6 +135,7 @@ public final class L2ExLauncher extends JFrame {
     private boolean extraGamesEnabled;
     private GradientPanel rootPanel;
     private final ModernButton refreshButton = new ModernButton("Refresh", ModernButton.Style.GHOST, ModernButton.Glyph.REFRESH);
+    private final ModernButton probeButton = new ModernButton("Probe files", ModernButton.Style.SUBTLE, ModernButton.Glyph.NONE);
     private final ModernButton downloadButton = new ModernButton("Download client", ModernButton.Style.PRIMARY, ModernButton.Glyph.DOWNLOAD);
     private final ModernButton launchButton = new ModernButton("Launch client", ModernButton.Style.PLAY, ModernButton.Glyph.PLAY);
     private final ModernButton cancelButton = new ModernButton("Cancel", ModernButton.Style.GHOST, ModernButton.Glyph.CLOSE);
@@ -363,6 +365,7 @@ public final class L2ExLauncher extends JFrame {
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         actions.setOpaque(false);
         actions.add(cancelButton);
+        actions.add(probeButton);
         actions.add(downloadButton);
         actions.add(launchButton);
 
@@ -407,6 +410,7 @@ public final class L2ExLauncher extends JFrame {
         refreshButton.addActionListener(e -> refreshFourGameCatalog());
         browse.addActionListener(e -> chooseOutput());
         downloadButton.addActionListener(e -> startDownload());
+        probeButton.addActionListener(e -> startProbeDownload());
         cancelButton.addActionListener(e -> stopActiveWork());
     }
 
@@ -445,31 +449,79 @@ public final class L2ExLauncher extends JFrame {
 
     private void loadClients() {
         try {
-            Path config = locateLauncherConfig();
+            Path config = ensureLauncherConfig();
             List<ClientConfig> clients;
-            if (config == null) {
-                clients = new ArrayList<>(fallbackClients());
-            } else {
-                String localXml = Files.readString(config);
-                extraGamesEnabled = readExtraGamesSetting(localXml);
-                clients = new ArrayList<>(readClients(localXml).stream()
-                        .filter(ClientConfig::isNcSoft)
-                        .filter(ClientConfig::enabled).toList());
-                try {
-                    clients.addAll(filterVisibleGames(updateAndReadFourGameCatalog()));
-                    append("Loaded 4game catalogs from live + pts2 XML");
-                } catch (Exception remoteEx) {
-                    clients.addAll(filterVisibleGames(readClients(localXml, false).stream().filter(ClientConfig::enabled).toList()));
-                    append("Warning: 4game catalog unavailable; using local catalog: " + rootMessage(remoteEx));
-                }
+            String localXml = Files.readString(config);
+            extraGamesEnabled = readExtraGamesSetting(localXml);
+            clients = new ArrayList<>(mergeNcSoftDefaults(readClients(localXml).stream()
+                    .filter(ClientConfig::isNcSoft).toList()));
+            try {
+                clients.addAll(filterVisibleGames(updateAndReadFourGameCatalog()));
+                append("Loaded 4game catalogs from live + pts2 XML");
+            } catch (Exception remoteEx) {
+                clients.addAll(filterVisibleGames(readClients(localXml, false).stream().filter(ClientConfig::enabled).toList()));
+                append("Warning: 4game catalog unavailable; using local catalog: " + rootMessage(remoteEx));
             }
-            append("Loaded " + clients.size() + " clients" + (config == null ? " from built-in defaults" : " from " + config));
+            append("Loaded " + clients.size() + " clients from " + config);
             clientBox.setModel(new DefaultComboBoxModel<>(clients.toArray(ClientConfig[]::new)));
             if (!clients.isEmpty()) refreshVersions();
         } catch (Exception ex) {
             append("Error reading launcher-config.xml: " + ex.getMessage());
             clientBox.setModel(new DefaultComboBoxModel<>(fallbackClients().toArray(ClientConfig[]::new)));
         }
+    }
+
+    /**
+     * The XML is a local cache for the 4game catalog, not the source of truth
+     * for NCSoft. Recreate it on first run (or after the user deletes it) so
+     * refresh and packaging always have a valid local configuration.
+     */
+    private Path ensureLauncherConfig() throws IOException {
+        Path existing = locateLauncherConfig();
+        if (existing != null) return existing;
+
+        IOException failure = null;
+        for (Path candidate : List.of(Path.of("dist", "launcher-config.xml"), Path.of("launcher-config.xml"))) {
+            try {
+                Path parent = candidate.getParent();
+                if (parent != null) Files.createDirectories(parent);
+                Files.writeString(candidate, defaultLauncherConfigXml(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+                append("Created missing launcher-config.xml at " + candidate.toAbsolutePath());
+                return candidate;
+            } catch (java.nio.file.FileAlreadyExistsException ex) {
+                return candidate;
+            } catch (IOException ex) {
+                failure = ex;
+            }
+        }
+        throw failure == null ? new IOException("Unable to create launcher-config.xml") : failure;
+    }
+
+    private String defaultLauncherConfigXml() {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                + "<!-- Local cache generated by L2ExLauncher. It is refreshed from the 4game XML. -->\n"
+                + "<config EnableExtraGames=\"false\">\n"
+                + "    <games>\n"
+                + "        <game id=\"1006\" name=\"LineageII EU\" display_name=\"Lineage 2 EU\" executable=\"l2.exe\" url=\"http://cdn.inn.ru/lineage2eu/patch/L2EU-p-260527-261006-1/distr/live\"/>\n"
+                + "        <game id=\"6\" name=\"LineageII\" display_name=\"Lineage 2 RU\" executable=\"l2.exe\" url=\"http://cdn.inn.ru/lineage2/patch/L2RU-p-260527-261006-1/distr/live\"/>\n"
+                + "        <game id=\"1057\" name=\"LineageII Essence EU\" display_name=\"Lineage 2 Essence EU\" executable=\"l2.exe\" url=\"http://cdn.inn.ru/adeu/patch/adeu-p-260527-261006-1/distr/live\"/>\n"
+                + "        <game id=\"33\" name=\"LineageII Classic\" display_name=\"Lineage 2 Classic RU\" executable=\"l2.exe\" url=\"http://cdn.inn.ru/clru/patch/CLRU-p-260527-261007-1/distr/live\"/>\n"
+                + "        <game id=\"57\" name=\"LineageII Essence\" display_name=\"Lineage 2 Essence RU\" executable=\"l2.exe\" url=\"http://cdn.inn.ru/l2adru/patch/adru-p-260527-261007-3/distr/live\"/>\n"
+                + "    </games>\n"
+                + "</config>\n";
+    }
+
+    /**
+     * NCSoft entries are built into the launcher because the local 4game XML is
+     * not their source of truth and may be deleted or contain only Innova games.
+     * XML entries still override the built-in defaults when present.
+     */
+    private List<ClientConfig> mergeNcSoftDefaults(List<ClientConfig> configured) {
+        Map<String, ClientConfig> merged = new LinkedHashMap<>();
+        for (ClientConfig client : defaultNcSoftClients()) merged.put(catalogKey(client), client);
+        for (ClientConfig client : configured) merged.put(catalogKey(client), client);
+        return merged.values().stream().filter(ClientConfig::enabled).toList();
     }
 
     private boolean readExtraGamesSetting(String xml) {
@@ -773,12 +825,19 @@ public final class L2ExLauncher extends JFrame {
     }
 
     private List<ClientConfig> fallbackClients() {
-        return List.of(
+        List<ClientConfig> clients = new ArrayList<>(List.of(
                 new ClientConfig("[EU] Lineage 2 EU (Innova/4Game)", "http://cdn.inn.ru/lineage2eu/patch/L2EU-p-260527-261006-1/distr", "l2.exe", true, "", "", null),
                 new ClientConfig("[EU] Lineage 2 Essence EU (Innova/4Game)", "http://cdn.inn.ru/adeu/patch/adeu-p-260527-261006-1/distr", "l2.exe", true, "", "", null),
                 new ClientConfig("[RU] Lineage 2 RU (Innova/4Game)", "http://cdn.inn.ru/lineage2/patch/L2RU-p-260527-261006-1/distr", "l2.exe", true, "", "", null),
                 new ClientConfig("[RU] Lineage 2 Classic RU (Innova/4Game)", "http://cdn.inn.ru/clru/patch/CLRU-p-260527-261007-1/distr", "l2.exe", true, "", "", null),
-                new ClientConfig("[RU] Lineage 2 Essence RU (Innova/4Game)", "http://cdn.inn.ru/l2adru/patch/adru-p-260527-261007-3/distr", "l2.exe", true, "", "", null),
+                new ClientConfig("[RU] Lineage 2 Essence RU (Innova/4Game)", "http://cdn.inn.ru/l2adru/patch/adru-p-260527-261007-3/distr", "l2.exe", true, "", "", null)
+        ));
+        clients.addAll(defaultNcSoftClients());
+        return clients;
+    }
+
+    private List<ClientConfig> defaultNcSoftClients() {
+        return List.of(
                 new ClientConfig("[KR] Lineage 2 Korea (NCSoft)", "", "l2.exe", false, "", "ncsoft", 283),
                 new ClientConfig("[NA] Lineage 2 North America (NCWest)", "", "l2.exe", false, "", "ncsoft", 605),
                 new ClientConfig("[JP] Lineage 2 Japan (NCJapan)", "", "l2.exe", false, "", "ncsoft", 227),
@@ -794,12 +853,42 @@ public final class L2ExLauncher extends JFrame {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         if (client == null || activeWorker != null) return;
         if (client.isNcSoft()) {
-            List<Distribution> ncVersions = List.of(new Distribution(
-                    Integer.toString(client.patchVersion()), "ncsoft", "NCSoft public manifest"));
-            versionBox.setModel(new DefaultComboBoxModel<>(ncVersions.toArray(Distribution[]::new)));
-            append("NCSoft " + client.displayName() + ": validated patch " + client.patchVersion() + ".");
-            statusLabel.setText("NCSoft catalog ready");
-            updateHero();
+            setBusy(true);
+            statusLabel.setText("Checking NCSoft version...");
+            append("Checking live NCSoft version over TCP 27500 for " + client.displayName());
+            activeWorker = new SwingWorker<Integer, Void>() {
+                @Override protected Integer doInBackground() throws Exception {
+                    CDNLink cdn = ncCdnType(client.displayName());
+                    NcUpdateVersionClient.VersionInfo info = NcUpdateVersionClient.query(
+                            cdn.getUpdateHost(), 27500, cdn.getUpdateServiceId(), 5000);
+                    return info.version();
+                }
+
+                @Override protected void done() {
+                    int version = client.patchVersion() == null ? 0 : client.patchVersion();
+                    try {
+                        version = get();
+                        append("NCSoft " + client.displayName() + ": live patch " + version + ".");
+                    } catch (Exception ex) {
+                        if (version > 0) {
+                            append("Warning: live NCSoft version check failed; using configured patch "
+                                    + version + ": " + rootMessage(ex));
+                        } else {
+                            append("Error reading NCSoft live version: " + rootMessage(ex));
+                        }
+                    }
+                    if (version > 0) {
+                        List<Distribution> ncVersions = List.of(new Distribution(
+                                Integer.toString(version), "ncsoft", "NCSoft public manifest"));
+                        versionBox.setModel(new DefaultComboBoxModel<>(ncVersions.toArray(Distribution[]::new)));
+                    }
+                    activeWorker = null;
+                    setBusy(false);
+                    statusLabel.setText(version > 0 ? "NCSoft catalog ready" : "Version unavailable");
+                    updateHero();
+                }
+            };
+            activeWorker.execute();
             return;
         }
         setBusy(true);
@@ -824,9 +913,11 @@ public final class L2ExLauncher extends JFrame {
 
     private void refreshFourGameCatalog() {
         if (activeWorker != null) return;
-        Path config = locateLauncherConfig();
-        if (config == null) {
-            append("Cannot refresh 4game catalog: launcher-config.xml not found.");
+        Path config;
+        try {
+            config = ensureLauncherConfig();
+        } catch (IOException ex) {
+            append("Cannot create launcher-config.xml: " + rootMessage(ex));
             return;
         }
         String selectedKey = clientBox.getSelectedItem() instanceof ClientConfig selected
@@ -840,8 +931,8 @@ public final class L2ExLauncher extends JFrame {
             @Override protected List<ClientConfig> doInBackground() throws Exception {
                 String localXml = Files.readString(config);
                 extraGamesEnabled = readExtraGamesSetting(localXml);
-                List<ClientConfig> clients = new ArrayList<>(readClients(localXml).stream()
-                        .filter(ClientConfig::isNcSoft).filter(ClientConfig::enabled).toList());
+                List<ClientConfig> clients = new ArrayList<>(mergeNcSoftDefaults(readClients(localXml).stream()
+                        .filter(ClientConfig::isNcSoft).toList()));
                 try {
                     clients.addAll(filterVisibleGames(updateAndReadFourGameCatalog()));
                     remoteLoaded = true;
@@ -910,6 +1001,24 @@ public final class L2ExLauncher extends JFrame {
     }
 
     private void startDownload() {
+        startDownload(false);
+    }
+
+    private void startProbeDownload() {
+        ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
+        if (client == null) { append("Choose a client first."); return; }
+        if (client.isNcSoft()) {
+            append("The file prober is currently available for 4game/INNOVA catalogs only.");
+            return;
+        }
+        if (!"l2.exe".equalsIgnoreCase(Path.of(client.executable()).getFileName().toString())) {
+            append("The file prober is only available for Lineage II clients.");
+            return;
+        }
+        startDownload(true);
+    }
+
+    private void startDownload(boolean probeOnly) {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         Distribution distribution = (Distribution) versionBox.getSelectedItem();
         if (client == null || distribution == null) { append("Choose a client and a distribution."); return; }
@@ -919,13 +1028,18 @@ public final class L2ExLauncher extends JFrame {
         setBusy(true);
         progress.setValue(0);
         fileProgress.setValue(0);
-        fileLabel.setText("Preparing effective manifest...");
+        fileLabel.setText(probeOnly ? "Preparing probe manifest..." : "Preparing effective manifest...");
         statusLabel.setText("Downloading...");
-        append("Downloading " + distribution.version + " to " + output);
+        append((probeOnly ? "Probing Lineage II files " : "Downloading ") + distribution.version + " to " + output);
         activeWorker = new SwingWorker<Void, String>() {
             @Override protected Void doInBackground() throws Exception {
                 if (client.isNcSoft()) runNcSoftDownload(client, distribution, output, this);
-                else new Downloader(client.distrUrl, output, this, distribution, client.downloadLiveIni, client.environment).run();
+                else {
+                    Downloader downloader = new Downloader(client.distrUrl, output, this, distribution,
+                            client.downloadLiveIni, client.environment);
+                    if (probeOnly) downloader.runProbe();
+                    else downloader.run();
+                }
                 return null;
             }
             @Override protected void process(List<String> chunks) { chunks.forEach(L2ExLauncher.this::append); }
@@ -933,9 +1047,9 @@ public final class L2ExLauncher extends JFrame {
                 try {
                     get();
                     stopNcSoftFileAnimation();
-                    append("Download complete and verified.");
+                    append(probeOnly ? "Probe complete and verified." : "Download complete and verified.");
                     statusLabel.setText("Ready");
-                    fileLabel.setText("Client ready to launch");
+                    fileLabel.setText(probeOnly ? "Probe files ready" : "Client ready to launch");
                     fileProgress.setValue(100);
                     progress.setValue(100);
                 }
@@ -1025,7 +1139,8 @@ public final class L2ExLauncher extends JFrame {
 
     private void setBusy(boolean busy) {
         clientBox.setEnabled(!busy); versionBox.setEnabled(!busy); refreshButton.setEnabled(!busy);
-        downloadButton.setEnabled(!busy); launchButton.setEnabled(!busy); cancelButton.setEnabled(busy);
+        probeButton.setEnabled(!busy); downloadButton.setEnabled(!busy);
+        launchButton.setEnabled(!busy); cancelButton.setEnabled(busy);
     }
 
     private void launchClient() {
@@ -1103,6 +1218,44 @@ public final class L2ExLauncher extends JFrame {
                 publish("Temporary manifest preserved at: " + manifestTemp);
                 throw ex;
             }
+        }
+
+        /**
+         * Lightweight Lineage II probe: download only the launcher-facing files
+         * needed to test a CDN installation, without touching the rest of distr.
+         */
+        void runProbe() throws Exception {
+            if (!environment.isBlank()) {
+                publish("Probe mode uses the main distr catalog; PTS2 environment files are not included.");
+            }
+            List<Distribution> distributions = resolveDistributions(catalogUrl);
+            List<Entry> entries = buildEffectiveManifest(distributions).stream()
+                    .filter(Downloader::isProbeEntry)
+                    .toList();
+            if (entries.isEmpty()) throw new IOException("Probe manifest has no system/l2.exe or system DLL entries");
+
+            Files.createDirectories(root);
+            Path manifestTemp = Files.createTempDirectory(root, ".lineage-probe-");
+            Path manifestFile = manifestTemp.resolve("manifest.json");
+            writeEffectiveManifest(manifestFile, entries);
+            publish("Probe manifest: " + entries.size() + " system files; live/l2.ini will also be downloaded.");
+            publish("Temporary probe index: " + manifestFile);
+            try {
+                downloadPartialEntries(entries);
+                verifyEntries(entries);
+                downloadLiveIniAlways();
+                deleteTree(manifestTemp);
+            } catch (Exception ex) {
+                publish("Temporary probe manifest preserved at: " + manifestTemp);
+                throw ex;
+            }
+        }
+
+        private static boolean isProbeEntry(Entry entry) {
+            String path = entry.path().replace('\\', '/');
+            if (!path.regionMatches(true, 0, "system/", 0, "system/".length())) return false;
+            String file = path.substring("system/".length());
+            return file.equalsIgnoreCase("l2.exe") || file.toLowerCase(Locale.ROOT).endsWith(".dll");
         }
 
         private void downloadEnvironmentFiles(String environment) throws Exception {
@@ -1448,6 +1601,11 @@ public final class L2ExLauncher extends JFrame {
         }
 
         private void downloadLiveIni() throws Exception {
+            if (!downloadLiveIni) return;
+            downloadLiveIniAlways();
+        }
+
+        private void downloadLiveIniAlways() throws Exception {
             try {
                 byte[] live = request(URI.create(catalogUrl + "/live/l2.ini"), null);
                 Path target = root.resolve("live/l2.ini");

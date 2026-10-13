@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Jogos públicos do launcher 4game/INNOVA, compilados do XML de configuração. -->
-<config EnableExtraGames="true">
+<config EnableExtraGames="false">
     <games>
         <!-- NCSoft public CDN catalogs. The patch number is not the client protocol number. -->
         <game display_name="[KR] Lineage 2 Korea (NCSoft)" source="ncsoft" patch_version="283" executable="l2.exe"/>
