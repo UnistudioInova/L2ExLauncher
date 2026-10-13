@@ -138,6 +138,7 @@ public final class L2ExLauncher extends JFrame {
     private GradientPanel rootPanel;
     private final ModernButton refreshButton = new ModernButton("Refresh", ModernButton.Style.GHOST, ModernButton.Glyph.REFRESH);
     private final ModernButton probeButton = new ModernButton("Probe files", ModernButton.Style.SUBTLE, ModernButton.Glyph.NONE);
+    private final ModernButton resourceButton = new ModernButton("Resource Files", ModernButton.Style.SUBTLE, ModernButton.Glyph.NONE);
     private final ModernButton downloadButton = new ModernButton("Download client", ModernButton.Style.PRIMARY, ModernButton.Glyph.DOWNLOAD);
     private final ModernButton launchButton = new ModernButton("Launch client", ModernButton.Style.PLAY, ModernButton.Glyph.PLAY);
     private final ModernButton cancelButton = new ModernButton("Cancel", ModernButton.Style.GHOST, ModernButton.Glyph.CLOSE);
@@ -370,6 +371,7 @@ public final class L2ExLauncher extends JFrame {
         actions.setOpaque(false);
         actions.add(cancelButton);
         actions.add(probeButton);
+        actions.add(resourceButton);
         actions.add(downloadButton);
         actions.add(launchButton);
 
@@ -415,6 +417,7 @@ public final class L2ExLauncher extends JFrame {
         browse.addActionListener(e -> chooseOutput());
         downloadButton.addActionListener(e -> startDownload());
         probeButton.addActionListener(e -> startProbeDownload());
+        resourceButton.addActionListener(e -> startResourceDownload());
         cancelButton.addActionListener(e -> stopActiveWork());
     }
 
@@ -1029,7 +1032,7 @@ public final class L2ExLauncher extends JFrame {
     }
 
     private void startDownload() {
-        startDownload(false);
+        startDownload(false, false);
     }
 
     private void startProbeDownload() {
@@ -1043,10 +1046,24 @@ public final class L2ExLauncher extends JFrame {
             append("The file prober is only available for Lineage II clients.");
             return;
         }
-        startDownload(true);
+        startDownload(true, false);
     }
 
-    private void startDownload(boolean probeOnly) {
+    private void startResourceDownload() {
+        ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
+        if (client == null) { append("Choose a client first."); return; }
+        if (client.isNcSoft()) {
+            append("Resource Files is currently available for 4game/INNOVA catalogs only.");
+            return;
+        }
+        if (!"l2.exe".equalsIgnoreCase(Path.of(client.executable()).getFileName().toString())) {
+            append("Resource Files is only available for Lineage II clients.");
+            return;
+        }
+        startDownload(false, true);
+    }
+
+    private void startDownload(boolean probeOnly, boolean resourceOnly) {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         Distribution distribution = (Distribution) versionBox.getSelectedItem();
         if (client == null || distribution == null) { append("Choose a client and a distribution."); return; }
@@ -1056,16 +1073,19 @@ public final class L2ExLauncher extends JFrame {
         setBusy(true);
         progress.setValue(0);
         fileProgress.setValue(0);
-        fileLabel.setText(probeOnly ? "Preparing probe manifest..." : "Preparing effective manifest...");
+        String operation = resourceOnly ? "resource files" : probeOnly ? "probe files" : "client";
+        fileLabel.setText("Preparing " + operation + " manifest...");
         statusLabel.setText("Downloading...");
-        append((probeOnly ? "Probing Lineage II files " : "Downloading ") + distribution.version + " to " + output);
+        append((resourceOnly ? "Downloading resource files " : probeOnly ? "Probing Lineage II files " : "Downloading ")
+                + distribution.version + " to " + output);
         activeWorker = new SwingWorker<Void, String>() {
             @Override protected Void doInBackground() throws Exception {
                 if (client.isNcSoft()) runNcSoftDownload(client, distribution, output, this);
                 else {
                     Downloader downloader = new Downloader(client.distrUrl, output, this, distribution,
                             client.downloadLiveIni, client.environment);
-                    if (probeOnly) downloader.runProbe();
+                    if (resourceOnly) downloader.runResourceFiles();
+                    else if (probeOnly) downloader.runProbe();
                     else downloader.run();
                 }
                 return null;
@@ -1075,9 +1095,11 @@ public final class L2ExLauncher extends JFrame {
                 try {
                     get();
                     stopNcSoftFileAnimation();
-                    append(probeOnly ? "Probe complete and verified." : "Download complete and verified.");
+                    append(resourceOnly ? "Resource files complete and verified."
+                            : probeOnly ? "Probe complete and verified." : "Download complete and verified.");
                     statusLabel.setText("Ready");
-                    fileLabel.setText(probeOnly ? "Probe files ready" : "Client ready to launch");
+                    fileLabel.setText(resourceOnly ? "Resource files ready"
+                            : probeOnly ? "Probe files ready" : "Client ready to launch");
                     fileProgress.setValue(100);
                     progress.setValue(100);
                 }
@@ -1167,7 +1189,7 @@ public final class L2ExLauncher extends JFrame {
 
     private void setBusy(boolean busy) {
         clientBox.setEnabled(!busy); versionBox.setEnabled(!busy); refreshButton.setEnabled(!busy);
-        probeButton.setEnabled(!busy); downloadButton.setEnabled(!busy);
+        probeButton.setEnabled(!busy); resourceButton.setEnabled(!busy); downloadButton.setEnabled(!busy);
         launchButton.setEnabled(!busy); cancelButton.setEnabled(busy);
     }
 
@@ -1279,11 +1301,44 @@ public final class L2ExLauncher extends JFrame {
             }
         }
 
+        /**
+         * Downloads only data/resource classes from the effective manifest. The
+         * original relative paths are preserved, so files land in their normal
+         * manifest directories (for example System/, Animations/ or Maps/).
+         */
+        void runResourceFiles() throws Exception {
+            List<Distribution> distributions = resolveDistributions(catalogUrl);
+            List<Entry> entries = buildEffectiveManifest(distributions).stream()
+                    .filter(Downloader::isResourceEntry)
+                    .toList();
+            if (entries.isEmpty()) throw new IOException("Resource manifest has no .dat, .u or .xdat entries");
+
+            Files.createDirectories(root);
+            Path manifestTemp = Files.createTempDirectory(root, ".lineage-resources-");
+            Path manifestFile = manifestTemp.resolve("manifest.json");
+            writeEffectiveManifest(manifestFile, entries);
+            publish("Resource manifest: " + entries.size() + " .dat/.u/.xdat files; original manifest paths preserved.");
+            publish("Temporary resource index: " + manifestFile);
+            try {
+                downloadPartialEntries(entries);
+                verifyEntries(entries);
+                deleteTree(manifestTemp);
+            } catch (Exception ex) {
+                publish("Temporary resource manifest preserved at: " + manifestTemp);
+                throw ex;
+            }
+        }
+
         private static boolean isProbeEntry(Entry entry) {
             String path = entry.path().replace('\\', '/');
             if (!path.regionMatches(true, 0, "system/", 0, "system/".length())) return false;
             String file = path.substring("system/".length());
             return file.equalsIgnoreCase("l2.exe") || file.toLowerCase(Locale.ROOT).endsWith(".dll");
+        }
+
+        private static boolean isResourceEntry(Entry entry) {
+            String path = entry.path().replace('\\', '/').toLowerCase(Locale.ROOT);
+            return path.endsWith(".dat") || path.endsWith(".u") || path.endsWith(".xdat");
         }
 
         private void downloadEnvironmentFiles(String environment) throws Exception {
