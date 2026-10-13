@@ -1325,22 +1325,25 @@ public final class L2ExLauncher extends JFrame {
         private void downloadFullPacks(List<Entry> entries) throws Exception {
             String aria2 = ensureAria2();
             Path temp = Files.createTempDirectory(root, ".lineage-download-tmp-");
-            Map<String, List<Entry>> byPack = new LinkedHashMap<>();
-            for (Entry entry : entries) byPack.computeIfAbsent(entry.pack, ignored -> new ArrayList<>()).add(entry);
+            Map<PackKey, List<Entry>> byPack = new LinkedHashMap<>();
+            for (Entry entry : entries) {
+                PackKey key = new PackKey(entry.sourceBase(), entry.pack);
+                byPack.computeIfAbsent(key, ignored -> new ArrayList<>()).add(entry);
+            }
             try {
                 int packIndex = 0;
-                for (String pack : byPack.keySet()) {
+                for (PackKey key : byPack.keySet()) {
                     checkCancelled();
-                    long total = packSize(pack);
-                    if (total <= 0) throw new IOException("Invalid size for " + pack);
-                    Path target = temp.resolve(Path.of(pack).getFileName().toString());
+                    long total = packSize(key.sourceBase(), key.pack());
+                    if (total <= 0) throw new IOException("Invalid size for " + key.pack());
+                    Path target = packPath(temp, key.sourceBase(), key.pack());
                     if (Files.exists(target) && Files.size(target) == total) {
-                        publish("Pack already complete, resuming: " + pack);
+                        publish("Pack already complete, resuming: " + key.pack());
                     } else {
                         Files.deleteIfExists(target);
-                        aria2Download(aria2, URI.create(entries.get(0).sourceBase() + "/" + pack), target, total);
+                        aria2Download(aria2, URI.create(key.sourceBase() + "/" + key.pack()), target, total);
                     }
-                        publish("Pack downloaded " + (++packIndex) + "/" + byPack.size() + ": " + pack + " (" + total + " bytes)");
+                    publish("Pack downloaded " + (++packIndex) + "/" + byPack.size() + ": " + key.pack() + " (" + total + " bytes)");
                 }
                 int completed = 0;
                 for (Entry entry : entries) {
@@ -1496,8 +1499,13 @@ public final class L2ExLauncher extends JFrame {
             publish("Final verification complete: all files are present and valid.");
         }
 
+        private Path packPath(Path temp, String sourceBase, String pack) throws Exception {
+            String identity = sha256((sourceBase + "\n" + pack).getBytes(StandardCharsets.UTF_8)).substring(0, 16);
+            return temp.resolve(identity + "-" + Path.of(pack).getFileName());
+        }
+
         private byte[] readPackBlock(Path temp, Entry entry) throws Exception {
-            Path pack = temp.resolve(Path.of(entry.pack).getFileName().toString());
+            Path pack = packPath(temp, entry.sourceBase(), entry.pack());
             ByteBuffer buffer = ByteBuffer.allocate(entry.storedSize);
             try (FileChannel channel = FileChannel.open(pack, StandardOpenOption.READ)) {
                 channel.position(entry.offset);
@@ -1507,8 +1515,8 @@ public final class L2ExLauncher extends JFrame {
             return buffer.array();
         }
 
-        private long packSize(String pack) throws Exception {
-            URI uri = URI.create(catalogUrl + "/" + pack);
+        private long packSize(String sourceBase, String pack) throws Exception {
+            URI uri = URI.create(sourceBase + "/" + pack);
             HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofMinutes(2)).header("Range", "bytes=0-0").GET().build();
             HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 206 || response.body().length != 1) throw new HttpStatusException(response.statusCode(), "Failed to query size of " + pack);
@@ -2401,6 +2409,7 @@ public final class L2ExLauncher extends JFrame {
             return new Entry(compressed, path, sha1, pack, offset, storedSize, originalSize, base);
         }
     }
+    private record PackKey(String sourceBase, String pack) { }
     private record Range(long start, long end) { }
     private static final class HttpStatusException extends IOException { final int status; HttpStatusException(int status, String message) { super(message); this.status = status; } }
 
