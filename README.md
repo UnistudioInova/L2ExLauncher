@@ -81,6 +81,14 @@ javac -cp "$CP" -d /tmp tests/GeneratorSmoke.java
 java -cp "/tmp:$CP" GeneratorSmoke
 ```
 
+### NC branch diagnostics
+
+The NC update protocol checks a service identifier over TCP, rather than browsing an HTTP
+`live`, `pts`, or `pts2` directory. `NcBranchProbe` is available for controlled diagnostics
+when an exact candidate service id is known; it records each result independently and never
+changes the downloader configuration. Do not infer a branch from an HTTP path that has not
+been confirmed by the provider.
+
 The patch versions are intentionally explicit and should be refreshed with `-last_version` when
 the CDN advances. They are patch versions, not Lineage II protocol numbers.
 
