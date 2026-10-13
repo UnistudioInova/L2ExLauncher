@@ -1070,6 +1070,7 @@ public final class L2ExLauncher extends JFrame {
         Path output = outputField.getText().isBlank()
                 ? LauncherPaths.defaultClientDirectory(client.displayName)
                 : Path.of(outputField.getText());
+        Path releaseOutput = output.resolve(safeName(distribution.version));
         setBusy(true);
         progress.setValue(0);
         fileProgress.setValue(0);
@@ -1077,12 +1078,12 @@ public final class L2ExLauncher extends JFrame {
         fileLabel.setText("Preparing " + operation + " manifest...");
         statusLabel.setText("Downloading...");
         append((resourceOnly ? "Downloading resource files " : probeOnly ? "Probing Lineage II files " : "Downloading ")
-                + distribution.version + " to " + output);
+                + distribution.version + " to " + releaseOutput);
         activeWorker = new SwingWorker<Void, String>() {
             @Override protected Void doInBackground() throws Exception {
-                if (client.isNcSoft()) runNcSoftDownload(client, distribution, output, this);
+                if (client.isNcSoft()) runNcSoftDownload(client, distribution, releaseOutput, this);
                 else {
-                    Downloader downloader = new Downloader(client.distrUrl, output, this, distribution,
+                    Downloader downloader = new Downloader(client.distrUrl, releaseOutput, this, distribution,
                             client.downloadLiveIni, client.environment);
                     if (resourceOnly) downloader.runResourceFiles();
                     else if (probeOnly) downloader.runProbe();
@@ -1196,11 +1197,21 @@ public final class L2ExLauncher extends JFrame {
     private void launchClient() {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         if (client == null) return;
-        Path root = outputField.getText().isBlank()
+        Path baseRoot = outputField.getText().isBlank()
                 ? LauncherPaths.defaultClientDirectory(client.displayName)
                 : Path.of(outputField.getText());
+        Distribution distribution = (Distribution) versionBox.getSelectedItem();
+        Path root = distribution == null ? baseRoot : baseRoot.resolve(safeName(distribution.version));
         Path absoluteRoot = root.toAbsolutePath().normalize();
         Path executable = absoluteRoot.resolve(client.executable).normalize();
+        // Keep older installations usable when they were downloaded before
+        // release-specific directories were introduced.
+        if ((!executable.startsWith(absoluteRoot) || !Files.isRegularFile(executable))
+                && distribution != null) {
+            root = baseRoot;
+            absoluteRoot = root.toAbsolutePath().normalize();
+            executable = absoluteRoot.resolve(client.executable).normalize();
+        }
         if (!executable.startsWith(absoluteRoot) || !Files.isRegularFile(executable)) {
             append("Warning: client executable not found: " + executable);
             JOptionPane.showMessageDialog(this,
