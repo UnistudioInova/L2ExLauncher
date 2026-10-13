@@ -145,6 +145,7 @@ public final class L2ExLauncher extends JFrame {
             .connectTimeout(Duration.ofSeconds(30))
             .build();
     private SwingWorker<?, ?> activeWorker;
+    private volatile Process activeExternalProcess;
 
     public static void main(String[] args) {
         FlatDarkLaf.setup();
@@ -418,6 +419,11 @@ public final class L2ExLauncher extends JFrame {
     private void stopActiveWork() {
         SwingWorker<?, ?> worker = activeWorker;
         EmbeddedNcSoftDownloader.cancelActive();
+        Process process = activeExternalProcess;
+        if (process != null) {
+            process.destroy();
+            if (process.isAlive()) process.destroyForcibly();
+        }
         if (worker != null) worker.cancel(true);
     }
 
@@ -1534,9 +1540,14 @@ public final class L2ExLauncher extends JFrame {
             if (command == null) throw new IOException("No supported package manager found. Install aria2 and restart the launcher.");
             publish("Installing aria2: " + String.join(" ", command));
             Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-            try (InputStream output = process.getInputStream()) { output.transferTo(System.out); }
-            if (process.waitFor() != 0 || (executable = findExecutable("aria2c")) == null) {
-                throw new IOException("Could not install aria2. Install it manually and restart the launcher.");
+            activeExternalProcess = process;
+            try {
+                try (InputStream output = process.getInputStream()) { output.transferTo(System.out); }
+                if (process.waitFor() != 0 || (executable = findExecutable("aria2c")) == null) {
+                    throw new IOException("Could not install aria2. Install it manually and restart the launcher.");
+                }
+            } finally {
+                activeExternalProcess = null;
             }
             return executable;
         }
@@ -1548,10 +1559,15 @@ public final class L2ExLauncher extends JFrame {
                     "--file-allocation=none", "--max-connection-per-server=8", "--split=8",
                     "--min-split-size=1M", "--console-log-level=warn", uri.toString());
             Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-            try (InputStream output = process.getInputStream()) { output.transferTo(System.out); }
-            if (process.waitFor() != 0) throw new IOException("aria2 failed to download " + uri);
-            if (!Files.exists(target) || Files.size(target) != expectedSize) {
-                throw new IOException("Invalid downloaded pack size: " + target);
+            activeExternalProcess = process;
+            try {
+                try (InputStream output = process.getInputStream()) { output.transferTo(System.out); }
+                if (process.waitFor() != 0) throw new IOException("aria2 failed to download " + uri);
+                if (!Files.exists(target) || Files.size(target) != expectedSize) {
+                    throw new IOException("Invalid downloaded pack size: " + target);
+                }
+            } finally {
+                activeExternalProcess = null;
             }
         }
 
