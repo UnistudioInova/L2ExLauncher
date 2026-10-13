@@ -113,6 +113,7 @@ import java.awt.RadialGradientPaint;
 
 public final class L2ExLauncher extends JFrame {
     private static final String FOURGAME_CONFIG_URL = "https://cdn.inn.ru/4game/config-live.xml";
+    private static final String FOURGAME_PTS_CONFIG_URL = "https://cdn.inn.ru/4game/config-pts.xml";
     private static final String FOURGAME_PTS2_CONFIG_URL = "https://cdn.inn.ru/4game/config-pts2.xml";
     private static final DateTimeFormatter CATALOG_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
             .withZone(ZoneOffset.UTC);
@@ -146,6 +147,7 @@ public final class L2ExLauncher extends JFrame {
             .build();
     private SwingWorker<?, ?> activeWorker;
     private volatile Process activeExternalProcess;
+    private String lastRegionalWarningKey = "";
 
     public static void main(String[] args) {
         FlatDarkLaf.setup();
@@ -434,6 +436,7 @@ public final class L2ExLauncher extends JFrame {
         versionChip.setText(distribution == null ? "—" : distribution.version);
         typeChip.setText(distribution == null || distribution.type().isBlank()
                 ? "—" : distribution.type().toUpperCase(Locale.ROOT));
+        warnIfRegionalFourGame(client);
     }
 
     private static JLabel caption(String text) {
@@ -464,7 +467,7 @@ public final class L2ExLauncher extends JFrame {
                     .filter(ClientConfig::isNcSoft).toList()));
             try {
                 clients.addAll(filterVisibleGames(updateAndReadFourGameCatalog()));
-                append("Loaded 4game catalogs from live + pts2 XML");
+                append("Loaded 4game catalogs from live + pts + pts2 XML");
             } catch (Exception remoteEx) {
                 clients.addAll(filterVisibleGames(readClients(localXml, false).stream().filter(ClientConfig::enabled).toList()));
                 append("Warning: 4game catalog unavailable; using local catalog: " + rootMessage(remoteEx));
@@ -568,7 +571,6 @@ public final class L2ExLauncher extends JFrame {
             String type = game.getAttribute("type").toLowerCase(Locale.ROOT);
             String patchVersion = game.getAttribute("patch_version");
             if (!includeNcSoft && "ncsoft".equalsIgnoreCase(source)) continue;
-            if ("pts".equals(type) || url.matches(".*/pts/?$")) continue;
             if (!url.isBlank() || "ncsoft".equalsIgnoreCase(source)) {
                 String executable = game.getAttribute("executable");
                 if (executable.isBlank()) executable = executableFromXml(game.getAttribute("ex_name"));
@@ -665,17 +667,19 @@ public final class L2ExLauncher extends JFrame {
 
     private List<ClientConfig> updateAndReadFourGameCatalog() throws Exception {
         byte[] liveBytes = request(URI.create(FOURGAME_CONFIG_URL), null);
-        byte[] pts2Bytes = request(URI.create(FOURGAME_PTS2_CONFIG_URL), null);
         String liveXml = new String(liveBytes, StandardCharsets.UTF_8);
-        String pts2Xml = new String(pts2Bytes, StandardCharsets.UTF_8);
+        Path root = LauncherPaths.catalogDirectory();
+        String ptsXml = optionalFourGameXml(FOURGAME_PTS_CONFIG_URL, root.resolve("current-pts.xml"), "PTS");
+        String pts2Xml = optionalFourGameXml(FOURGAME_PTS2_CONFIG_URL, root.resolve("current-pts2.xml"), "PTS2");
         List<ClientConfig> current = new ArrayList<>(readClients(liveXml, false));
-        current.addAll(readClients(pts2Xml, false));
+        if (ptsXml != null) current.addAll(readClients(ptsXml, false));
+        if (pts2Xml != null) current.addAll(readClients(pts2Xml, false));
         Map<String, ClientConfig> unique = new LinkedHashMap<>();
         for (ClientConfig client : current) unique.put(catalogKey(client), client);
         current = new ArrayList<>(unique.values());
-        byte[] combinedXml = (liveXml + "\n<!-- PTS2 -->\n" + pts2Xml).getBytes(StandardCharsets.UTF_8);
+        byte[] combinedXml = (liveXml + "\n<!-- PTS -->\n" + (ptsXml == null ? "" : ptsXml)
+                + "\n<!-- PTS2 -->\n" + (pts2Xml == null ? "" : pts2Xml)).getBytes(StandardCharsets.UTF_8);
         String xmlHash = sha256(combinedXml);
-        Path root = LauncherPaths.catalogDirectory();
         Path currentGames = root.resolve("current-games");
         Path history = root.resolve("history");
         Files.createDirectories(currentGames);
@@ -709,12 +713,13 @@ public final class L2ExLauncher extends JFrame {
         if (!xmlHash.equalsIgnoreCase(oldXmlHash)) {
             Files.writeString(previousXmlHash, xmlHash, StandardCharsets.UTF_8);
             Files.writeString(root.resolve("current-live.xml"), liveXml, StandardCharsets.UTF_8);
-            Files.writeString(root.resolve("current-pts2.xml"), pts2Xml, StandardCharsets.UTF_8);
+            if (ptsXml != null) Files.writeString(root.resolve("current-pts.xml"), ptsXml, StandardCharsets.UTF_8);
+            if (pts2Xml != null) Files.writeString(root.resolve("current-pts2.xml"), pts2Xml, StandardCharsets.UTF_8);
         }
         Path currentCatalog = root.resolve("current").resolve("catalog.json");
         Files.createDirectories(currentCatalog.getParent());
         writeCatalogJson(currentCatalog, current, xmlHash);
-        if (changedGames > 0) append("4game catalog updated: " + changedGames + " game entr" + (changedGames == 1 ? "y" : "ies") + " changed (live + pts2).");
+        if (changedGames > 0) append("4game catalog updated: " + changedGames + " game entr" + (changedGames == 1 ? "y" : "ies") + " changed (live + pts + pts2).");
 
         List<ClientConfig> result = new ArrayList<>(current.stream().filter(ClientConfig::enabled).toList());
         try (var dirs = Files.list(history)) {
@@ -738,6 +743,40 @@ public final class L2ExLauncher extends JFrame {
             });
         }
         return result;
+    }
+
+    private String optionalFourGameXml(String url, Path cache, String label) throws IOException {
+        try {
+            String xml = new String(request(URI.create(url), null), StandardCharsets.UTF_8);
+            Files.createDirectories(cache.getParent());
+            Files.writeString(cache, xml, StandardCharsets.UTF_8);
+            append("Loaded 4game " + label + " XML.");
+            return xml;
+        } catch (Exception remoteEx) {
+            if (Files.isRegularFile(cache)) {
+                append("Warning: 4game " + label + " XML unavailable (Ukrainian IP/host restriction); using cached XML: "
+                        + rootMessage(remoteEx));
+                return Files.readString(cache, StandardCharsets.UTF_8);
+            }
+            append("Warning: 4game " + label + " XML unavailable. A valid Ukrainian IP may be required and some hosts may still fail: "
+                    + rootMessage(remoteEx));
+            return null;
+        }
+    }
+
+    private void warnIfRegionalFourGame(ClientConfig client) {
+        if (client == null || client.isNcSoft()) return;
+        String environment = client.environment().toLowerCase(Locale.ROOT);
+        if (!environment.equals("pts") && !environment.equals("pts2")) {
+            lastRegionalWarningKey = "";
+            return;
+        }
+        String key = catalogKey(client);
+        if (key.equals(lastRegionalWarningKey)) return;
+        lastRegionalWarningKey = key;
+        append("Warning: 4game " + environment.toUpperCase(Locale.ROOT)
+                + " may require a valid Ukrainian IP; access can still fail depending on the CDN host.");
+        statusLabel.setText("Ukraine IP may be required");
     }
 
     private String catalogKey(ClientConfig client) {
@@ -913,7 +952,7 @@ public final class L2ExLauncher extends JFrame {
                 ? catalogKey(selected) : "";
         setBusy(true);
         statusLabel.setText("Updating catalog...");
-        append("Downloading current 4game live + pts2 XML...");
+        append("Downloading current 4game live + pts + pts2 XML...");
         activeWorker = new SwingWorker<List<ClientConfig>, Void>() {
             private boolean remoteLoaded;
 
@@ -938,7 +977,7 @@ public final class L2ExLauncher extends JFrame {
                     List<ClientConfig> clients = get();
                     clientBox.setModel(new DefaultComboBoxModel<>(clients.toArray(ClientConfig[]::new)));
                     updateBranding();
-                    append(remoteLoaded ? "4game catalog refreshed from live + pts2 XML."
+                    append(remoteLoaded ? "4game catalog refreshed from live + pts + pts2 XML."
                             : "4game catalog unchanged; local fallback retained.");
                     if (!clients.isEmpty()) {
                         for (int i = 0; i < clients.size(); i++) {
