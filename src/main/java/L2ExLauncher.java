@@ -1349,7 +1349,10 @@ public final class L2ExLauncher extends JFrame {
 
         private static boolean isResourceEntry(Entry entry) {
             String path = entry.path().replace('\\', '/').toLowerCase(Locale.ROOT);
-            return path.endsWith(".dat") || path.endsWith(".u") || path.endsWith(".xdat");
+            if (path.endsWith(".dat") || path.endsWith(".u") || path.endsWith(".xdat")) return true;
+            String file = path.substring(path.lastIndexOf('/') + 1);
+            return file.equals("core.dll") || file.equals("engine.dll")
+                    || file.equals("nwindow.dll") || file.equals("window.dll");
         }
 
         private void downloadEnvironmentFiles(String environment) throws Exception {
