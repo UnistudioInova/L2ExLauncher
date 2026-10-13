@@ -843,23 +843,24 @@ public final class L2ExLauncher extends JFrame {
         if (client.isNcSoft()) {
             setBusy(true);
             statusLabel.setText("Checking NCSoft version...");
-            append("Checking live NCSoft version over TCP 27500 for " + client.displayName());
-            activeWorker = new SwingWorker<Integer, Void>() {
-                @Override protected Integer doInBackground() throws Exception {
+            append("Checking current NCSoft version over TCP 27500 for " + client.displayName());
+            activeWorker = new SwingWorker<NcUpdateVersionClient.VersionInfo, Void>() {
+                @Override protected NcUpdateVersionClient.VersionInfo doInBackground() throws Exception {
                     CDNLink cdn = ncCdnType(client.displayName());
-                    NcUpdateVersionClient.VersionInfo info = NcUpdateVersionClient.query(
+                    return NcUpdateVersionClient.query(
                             cdn.getUpdateHost(), 27500, cdn.getUpdateServiceId(), 5000);
-                    return info.version();
                 }
 
                 @Override protected void done() {
                     int version = client.patchVersion() == null ? 0 : client.patchVersion();
                     try {
-                        version = get();
-                        append("NCSoft " + client.displayName() + ": live patch " + version + ".");
+                        NcUpdateVersionClient.VersionInfo info = get();
+                        version = info.version();
+                        append("NCSoft " + client.displayName() + ": current patch " + version
+                                + (info.hash() == null ? "" : " (manifest SHA-1 " + info.hash() + ")") + ".");
                     } catch (Exception ex) {
                         if (version > 0) {
-                            append("Warning: live NCSoft version check failed; using configured patch "
+                            append("Warning: current NCSoft version check failed; using configured patch "
                                     + version + ": " + rootMessage(ex));
                         } else {
                             append("Error reading NCSoft live version: " + rootMessage(ex));
