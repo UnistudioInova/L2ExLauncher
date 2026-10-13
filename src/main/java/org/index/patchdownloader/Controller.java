@@ -87,7 +87,7 @@ public class Controller
         {
             if (!lastVersionOnly)
             {
-                IDummyLogger.log(IDummyLogger.ERROR, "Cannot load config 'work/config/Main.ini': " + e);
+                IDummyLogger.log(IDummyLogger.ERROR, "Cannot load config 'config/Main.ini': " + e);
                 System.exit(1);
                 return;
             }

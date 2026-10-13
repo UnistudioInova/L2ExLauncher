@@ -131,8 +131,33 @@ public abstract class AbstractStageManager
      **/
     public void submit(AbstractFileRequest task)
     {
+        if (_state != StageState.RUNNING)
+        {
+            failStopped(task);
+            return;
+        }
         _queue.add(task);
         pump();
+    }
+
+    /**
+     * A task can race with cancellation between a successful stage and the next
+     * stage. Do not silently drop it: terminal accounting must still release its
+     * buffers and in-flight budget.
+     */
+    private void failStopped(AbstractFileRequest task)
+    {
+        if (task == null || task.getState().isTerminal()) return;
+        try
+        {
+            task.markFailed(DownloadFailureType.CANCELLED);
+            if (_sink != null) _sink.onFailed(task, DownloadFailureType.CANCELLED);
+        }
+        catch (Throwable throwable)
+        {
+            IDummyLogger.log(IDummyLogger.ERROR,
+                    "Could not account cancelled task '" + task.getLinkPath() + "': " + throwable);
+        }
     }
 
     /**
@@ -240,6 +265,7 @@ public abstract class AbstractStageManager
         releaseSlot();
         if (_state == StageState.STOPPED)
         {
+            failStopped(task);
             return;
         }
         _sinkReported.set(Boolean.FALSE);
@@ -401,7 +427,11 @@ public abstract class AbstractStageManager
     public void abort()
     {
         _state = StageState.STOPPED;
-        _queue.clear();
+        AbstractFileRequest queued;
+        while ((queued = _queue.poll()) != null)
+        {
+            failStopped(queued);
+        }
         if (_pool != null) _pool.shutdownNow();
     }
 

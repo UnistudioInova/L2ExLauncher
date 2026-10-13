@@ -26,7 +26,7 @@ stores them, with optional post-store hash / size verification.
 The runnable jar is produced from the IntelliJ artifact definitions in `.idea/artifacts/`
 (`Lineage_02_Patch_Downloader` — thin jar; `..._AIO` — all-in-one with dependencies bundled).
 
-Run with the config file (`work/config/Main.ini`) and/or command-line arguments — CLI arguments
+Run with the config file (`config/Main.ini`) and/or command-line arguments — CLI arguments
 override the config:
 
 ```bat
@@ -62,7 +62,7 @@ java -jar Lineage_02_Patch_Downloader.jar -cdn NC_SOFT_AMERICA -last_version
 
 ## Configuration
 
-Defaults live in `work/config/Main.ini` (documented inline, EN + RU). Every value can be
+Defaults live in `config/Main.ini`. Launcher catalogs and persistent state live in `db/`. Every value can be
 overridden on the command line.
 
 ---

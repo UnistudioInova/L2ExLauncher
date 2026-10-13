@@ -28,7 +28,8 @@ public enum DownloadFailureType
     NOT_FOUND(false),
     RANGE_NOT_SATISFIABLE(false),
     DECOMPRESS_ERROR(false),
-    STORE_ERROR(false);
+    STORE_ERROR(false),
+    CANCELLED(false);
 
     public static final DownloadFailureType[] VALUES = values();
 

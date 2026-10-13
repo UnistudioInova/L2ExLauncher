@@ -6,6 +6,7 @@ import org.xml.sax.InputSource;
 import org.tukaani.xz.LZMAInputStream;
 import com.formdev.flatlaf.FlatDarkLaf;
 import org.index.patchdownloader.EmbeddedNcSoftDownloader;
+import org.index.patchdownloader.LauncherPaths;
 import org.index.patchdownloader.enums.CDNLink;
 import org.index.patchdownloader.model.versioncheck.NcUpdateVersionClient;
 
@@ -217,7 +218,7 @@ public final class L2ExLauncher extends JFrame {
         // tamanho fixo: um caminho longo não pode alterar o layout da barra lateral
         outputField.setPreferredSize(new Dimension(10, 44));
         outputField.setMinimumSize(new Dimension(10, 44));
-        outputField.putClientProperty("JTextField.placeholderText", "Default: ~/NCSOFT_PTS/<client>");
+        outputField.putClientProperty("JTextField.placeholderText", "Default: ./clients/<client>");
 
         ModernButton browse = new ModernButton("", ModernButton.Style.SUBTLE, ModernButton.Glyph.FOLDER);
         browse.setToolTipText("Choose destination folder");
@@ -477,25 +478,23 @@ public final class L2ExLauncher extends JFrame {
      * refresh and packaging always have a valid local configuration.
      */
     private Path ensureLauncherConfig() throws IOException {
-        Path existing = locateLauncherConfig();
-        if (existing != null) return existing;
+        Path current = locateLauncherConfig();
+        if (current != null) return current;
 
-        IOException failure = null;
-        for (Path candidate : List.of(Path.of("dist", "launcher-config.xml"), Path.of("launcher-config.xml"))) {
-            try {
-                Path parent = candidate.getParent();
-                if (parent != null) Files.createDirectories(parent);
-                Files.writeString(candidate, defaultLauncherConfigXml(), StandardCharsets.UTF_8,
-                        StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-                append("Created missing launcher-config.xml at " + candidate.toAbsolutePath());
-                return candidate;
-            } catch (java.nio.file.FileAlreadyExistsException ex) {
-                return candidate;
-            } catch (IOException ex) {
-                failure = ex;
-            }
+        Path target = LauncherPaths.launcherConfig();
+        Files.createDirectories(target.getParent());
+        for (Path legacy : List.of(
+                LauncherPaths.applicationRoot().resolve("dist/launcher-config.xml"),
+                LauncherPaths.applicationRoot().resolve("launcher-config.xml"))) {
+            if (!Files.isRegularFile(legacy)) continue;
+            Files.copy(legacy, target, StandardCopyOption.COPY_ATTRIBUTES);
+            append("Migrated launcher-config.xml to " + target.toAbsolutePath());
+            return target;
         }
-        throw failure == null ? new IOException("Unable to create launcher-config.xml") : failure;
+        Files.writeString(target, defaultLauncherConfigXml(), StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        append("Created missing launcher-config.xml at " + target.toAbsolutePath());
+        return target;
     }
 
     private String defaultLauncherConfigXml() {
@@ -541,25 +540,8 @@ public final class L2ExLauncher extends JFrame {
     }
 
     private Path locateLauncherConfig() {
-        List<Path> candidates = new ArrayList<>();
-        candidates.add(Path.of("dist", "launcher-config.xml"));
-        candidates.add(Path.of("launcher-config.xml"));
-        try {
-            Path jar = Path.of(L2ExLauncher.class.getProtectionDomain()
-                    .getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(jar)) {
-                candidates.add(jar.getParent().resolve("launcher-config.xml"));
-                candidates.add(jar.getParent().getParent().resolve("launcher-config.xml"));
-            } else {
-                candidates.add(jar.resolve("dist/launcher-config.xml"));
-                if (jar.getParent() != null) candidates.add(jar.getParent().resolve("dist/launcher-config.xml"));
-                candidates.add(jar.resolve("launcher-config.xml"));
-                for (Path parent = jar; parent != null; parent = parent.getParent()) {
-                    candidates.add(parent.resolve("dist/launcher-config.xml"));
-                }
-            }
-        } catch (Exception ignored) { }
-        return candidates.stream().filter(Files::isRegularFile).findFirst().orElse(null);
+        Path config = LauncherPaths.launcherConfig();
+        return Files.isRegularFile(config) ? config : null;
     }
 
     private List<ClientConfig> readClients(String xml) throws Exception {
@@ -687,7 +669,7 @@ public final class L2ExLauncher extends JFrame {
         current = new ArrayList<>(unique.values());
         byte[] combinedXml = (liveXml + "\n<!-- PTS2 -->\n" + pts2Xml).getBytes(StandardCharsets.UTF_8);
         String xmlHash = sha256(combinedXml);
-        Path root = Path.of(System.getProperty("user.home"), "NCSOFT_PTS", ".l2exlauncher", "4game-catalogs");
+        Path root = LauncherPaths.catalogDirectory();
         Path currentGames = root.resolve("current-games");
         Path history = root.resolve("history");
         Files.createDirectories(currentGames);
@@ -1023,7 +1005,7 @@ public final class L2ExLauncher extends JFrame {
         Distribution distribution = (Distribution) versionBox.getSelectedItem();
         if (client == null || distribution == null) { append("Choose a client and a distribution."); return; }
         Path output = outputField.getText().isBlank()
-                ? Path.of(System.getProperty("user.home"), "NCSOFT_PTS", safeName(client.displayName))
+                ? LauncherPaths.defaultClientDirectory(client.displayName)
                 : Path.of(outputField.getText());
         setBusy(true);
         progress.setValue(0);
@@ -1147,7 +1129,7 @@ public final class L2ExLauncher extends JFrame {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         if (client == null) return;
         Path root = outputField.getText().isBlank()
-                ? Path.of(System.getProperty("user.home"), "NCSOFT_PTS", safeName(client.displayName))
+                ? LauncherPaths.defaultClientDirectory(client.displayName)
                 : Path.of(outputField.getText());
         Path absoluteRoot = root.toAbsolutePath().normalize();
         Path executable = absoluteRoot.resolve(client.executable).normalize();

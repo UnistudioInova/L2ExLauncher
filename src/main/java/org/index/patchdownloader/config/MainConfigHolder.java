@@ -1,14 +1,15 @@
 package org.index.patchdownloader.config;
 
 import git.index.configparser.model.AbstractConfigHolder;
+import org.index.patchdownloader.LauncherPaths;
 import org.index.patchdownloader.config.configs.MainConfig;
 
 /**
  * EN: Loader for {@link MainConfig} backed by the {@code ConfigFieldParser} library. Reads the flat
- *     {@code key=value} file at {@code work/config/Main.ini} (relative to the working directory) and
+ *     {@code key=value} file at {@code config/Main.ini} in the launcher root and
  *     fills the annotated static fields. Strict singleton.<br>
  * RU: Загрузчик {@link MainConfig} на базе библиотеки {@code ConfigFieldParser}. Читает плоский файл
- *     {@code key=value} по пути {@code work/config/Main.ini} (относительно рабочего каталога) и
+ *     {@code key=value} по пути {@code config/Main.ini} в корне лаунчера и
  *     заполняет аннотированные статические поля. Строгий синглтон.<br>
  **/
 public class MainConfigHolder extends AbstractConfigHolder<MainConfig>
@@ -28,7 +29,7 @@ public class MainConfigHolder extends AbstractConfigHolder<MainConfig>
     @Override
     public String getConfigPath()
     {
-        return "work/config/Main.ini";
+        return LauncherPaths.backendConfig().toString();
     }
 
     /**

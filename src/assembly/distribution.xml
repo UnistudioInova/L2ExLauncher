@@ -14,8 +14,8 @@
             <destName>l2exlauncher-${project.version}.jar</destName>
         </file>
         <file>
-            <source>${project.basedir}/dist/launcher-config.xml</source>
-            <outputDirectory>/</outputDirectory>
+            <source>${project.basedir}/config/launcher-config.xml</source>
+            <outputDirectory>/config</outputDirectory>
         </file>
         <file>
             <source>${project.basedir}/dist/images/launcher-l2.jpg</source>
@@ -26,8 +26,8 @@
             <outputDirectory>/images</outputDirectory>
         </file>
         <file>
-            <source>${project.basedir}/dist/work/config/Main.ini</source>
-            <outputDirectory>/work/config</outputDirectory>
+            <source>${project.basedir}/config/Main.ini</source>
+            <outputDirectory>/config</outputDirectory>
         </file>
     </files>
 </assembly>
