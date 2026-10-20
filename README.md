@@ -50,7 +50,7 @@ version source → file list → download → decompression → validation → s
 - Maven 3.9 or newer.
 - Internet access to query catalogues and download files.
 
-Some dependencies remain bundled in `libs/`, including `ConfigFieldParser`, `dom4j` and `json-simple`.
+Some dependencies remain bundled in `libs/`, including `ConfigFieldParser`, `dom4j`, `json-simple` and XZ for Java.
 
 ## Building
 
@@ -81,9 +81,11 @@ java -jar target/l2exlauncher-<version>.jar
 
 The interface allows users to select a region, branch, client, version and output directory. The catalogue can be refreshed from the application.
 
+The executable JAR declares `org.l2explorer.launcher.frontend.L2ExLauncher` as its manifest entry point. It currently always starts the Swing interface, even when additional arguments are supplied. Arguments are not automatically forwarded from the graphical entry point to the backend.
+
 ## CLI execution
 
-The embedded backend can also be executed directly:
+The embedded backend must therefore be executed directly through its class entry point:
 
 ```bash
 java -cp target/l2exlauncher-<version>.jar \
@@ -109,13 +111,30 @@ Main options:
 | `-source_compare <dir>` | Compare against or seed from a local copy. |
 | `-help` | Display all arguments. |
 
-Example version query:
+The equivalent version query is:
 
 ```bash
-java -jar target/l2exlauncher-<version>.jar \
+java -cp target/l2exlauncher-<version>.jar \
+  org.l2explorer.launcher.backend.Controller \
   -cdn NC_SOFT_AMERICA \
   -last_version
 ```
+
+Using `java -jar target/l2exlauncher-<version>.jar -last_version` currently opens the graphical launcher instead of running the CLI action.
+
+## Third-party notices
+
+The distribution contains or embeds the following third-party components. Their licenses remain applicable to those components and do not change the license of the L2ExLauncher source code.
+
+| Component | Version / package | License or status |
+|---|---|---|
+| ConfigFieldParser | `libs/ConfigFieldParser.jar` | Internal companion library distributed under this project's MIT terms. |
+| dom4j | 2.1.4 | Plexus license, a BSD-style permissive license. Copyright and license notices must be retained when redistributing the component. |
+| JSON.simple | 1.1.1 | Apache License 2.0. |
+| XZ for Java | 1.9 | Public domain, as stated by the bundled XZ licensing material. |
+| FlatLaf | 3.5.4 | Apache License 2.0. |
+
+The source JARs supplied in `libs/` are included for reference and correspond to the respective binary dependencies. When redistributing the application, retain the applicable notices and license texts for these components.
 
 ## Configuration
 
