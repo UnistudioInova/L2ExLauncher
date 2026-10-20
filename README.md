@@ -1,157 +1,153 @@
 # L2ExLauncher
 
-L2ExLauncher é um launcher e downloader para clientes Lineage II. O projeto combina uma interface gráfica Swing com o backend de download embutido no mesmo aplicativo Java.
+L2ExLauncher is a launcher and downloader for Lineage II clients. The project combines a Swing graphical interface with an embedded download backend in the same Java application.
 
-O backend não é um serviço separado: a interface e o pipeline de processamento são compilados no mesmo artefato executável.
+The backend is not a separate service: the interface and processing pipeline are compiled into the same executable artifact.
 
-## Funcionalidades
+## Features
 
-- Interface gráfica com tema escuro baseada em FlatLaf.
-- Modo de linha de comando para automação e diagnóstico.
-- Catálogo de versões e clientes por região e ramo.
-- Download individual ou completo de clientes.
-- Downloads simples, divididos por faixa de bytes, por partes CDN e estratégias híbridas.
-- Processamento paralelo de downloads, com controle de concorrência.
-- Armazenamento em memória, temporário ou híbrido.
-- Descompressão LZMA e ZIP.
-- Validação por hash e tamanho.
-- Restauração de arquivos já válidos.
-- Comparação com uma cópia local antes de acessar a CDN.
-- Consulta da versão atual dos serviços NCSoft.
-- Suporte a fontes NCSoft, 4game/Innova, UpNova e Akumu.
-- Geração e exportação de catálogos de arquivos.
+- Dark-themed graphical interface based on FlatLaf.
+- Command-line mode for automation and diagnostics.
+- Version and client catalogues organized by region and branch.
+- Individual-file or full-client downloads.
+- Single-connection, byte-range, CDN-part and hybrid download strategies.
+- Parallel downloads with concurrency control.
+- In-memory, temporary-file or hybrid storage modes.
+- LZMA and ZIP decompression.
+- Hash and size validation.
+- Restoration of existing valid files.
+- Local-copy comparison before accessing a CDN.
+- Current-version queries for NCSoft services.
+- Support for NCSoft, 4game/Innova, UpNova and Akumu sources.
+- File catalogue generation and export.
 
-## Arquitetura
+## Architecture
 
-O projeto é organizado em duas camadas dentro do mesmo JAR:
+The project is organized into two layers inside the same JAR:
 
 ```text
 src/main/java/org/l2explorer/launcher/frontend/
-└── L2ExLauncher.java       Interface gráfica Swing
+└── L2ExLauncher.java       Swing graphical interface
 
 src/main/java/org/l2explorer/launcher/backend/
-├── Controller.java          Entrada do fluxo CLI
-├── model/                   Geradores, manifestos, CDN e processamento
-├── impl/                    Coordenação do pipeline
-├── instancemanager/         Download, descompressão, hash e armazenamento
-├── interfaces/              Contratos do backend
-└── cli/                     Argumentos e comandos da linha de comando
+├── Controller.java          CLI entry point
+├── model/                   Generators, manifests, CDN and processing
+├── impl/                    Pipeline coordination
+├── instancemanager/         Download, decompression, hashing and storage
+├── interfaces/              Backend contracts
+└── cli/                     Command-line arguments and commands
 ```
 
-O pipeline segue, em linhas gerais:
+The pipeline is, in broad terms:
 
 ```text
-fonte de versão → lista de arquivos → download → descompressão → validação → armazenamento
+version source → file list → download → decompression → validation → storage
 ```
 
-## Requisitos
+## Requirements
 
-- Java 25 ou compatível.
-- Maven 3.9 ou superior.
-- Acesso à internet para consultar catálogos e baixar arquivos.
+- Java 25 or a compatible runtime.
+- Maven 3.9 or newer.
+- Internet access to query catalogues and download files.
 
-Algumas dependências locais permanecem em `libs/`, incluindo `ConfigFieldParser`, `dom4j` e `json-simple`.
+Some dependencies remain bundled in `libs/`, including `ConfigFieldParser`, `dom4j` and `json-simple`.
 
-## Compilação
+## Building
 
-Na raiz do projeto:
+From the project root:
 
 ```bash
 mvn clean package
 ```
 
-Os artefatos são gerados em `target/` e `build/`:
+Build artifacts are generated in `target/` and `build/`:
 
-- JAR executável com dependências incorporadas;
-- ZIP de distribuição com JAR, configurações e imagens necessárias.
+- executable JAR with embedded dependencies;
+- distribution ZIP containing the JAR, configuration files and required images.
 
-O ponto de entrada da aplicação é:
+The application entry point is:
 
 ```text
 org.l2explorer.launcher.frontend.L2ExLauncher
 ```
 
-## Execução gráfica
+## Graphical execution
 
-Após a compilação:
+After building:
 
 ```bash
-java -jar target/l2exlauncher-<versão>.jar
+java -jar target/l2exlauncher-<version>.jar
 ```
 
-A interface permite selecionar região, ramo, cliente, versão e pasta de destino. O catálogo pode ser atualizado pela própria aplicação.
+The interface allows users to select a region, branch, client, version and output directory. The catalogue can be refreshed from the application.
 
-## Execução CLI
+## CLI execution
 
-O backend também pode ser executado diretamente:
+The embedded backend can also be executed directly:
 
 ```bash
-java -cp target/l2exlauncher-0.0.8.jar \
+java -cp target/l2exlauncher-<version>.jar \
   org.l2explorer.launcher.backend.Controller \
   -cdn NC_SOFT_AMERICA \
   -version 215
 ```
 
-Use `-help` para listar todos os argumentos disponíveis.
+Use `-help` to list all available arguments.
 
-Principais opções:
+Main options:
 
-| Opção | Descrição |
+| Option | Description |
 |---|---|
-| `-cdn <source>` | Fonte do cliente ou CDN. |
-| `-version <n>` | Versão/patch a baixar. |
-| `-last_version` | Consulta a versão atual sem baixar o cliente. |
-| `-path <dir>` | Diretório de saída. |
-| `-download_mode <mode>` | `ALL_MEMORY`, `HYBRID` ou `ALL_TEMP`. |
-| `-restore` | Reutiliza arquivos existentes e válidos. |
-| `-hash` | Valida os arquivos por hash. |
-| `-size` | Valida os arquivos pelo tamanho. |
-| `-source_compare <dir>` | Compara ou reutiliza uma cópia local. |
-| `-help` | Exibe todos os argumentos. |
+| `-cdn <source>` | Client or CDN source. |
+| `-version <n>` | Patch/version to download. |
+| `-last_version` | Query the current version without downloading the client. |
+| `-path <dir>` | Output directory. |
+| `-download_mode <mode>` | `ALL_MEMORY`, `HYBRID` or `ALL_TEMP`. |
+| `-restore` | Reuse existing valid files. |
+| `-hash` | Validate files by hash. |
+| `-size` | Validate files by size. |
+| `-source_compare <dir>` | Compare against or seed from a local copy. |
+| `-help` | Display all arguments. |
 
-Exemplo de consulta de versão:
+Example version query:
 
 ```bash
-java -jar target/l2exlauncher-<versão>.jar \
+java -jar target/l2exlauncher-<version>.jar \
   -cdn NC_SOFT_AMERICA \
   -last_version
 ```
 
-## Configuração
+## Configuration
 
-As configurações principais ficam em:
+The main configuration files are:
 
 ```text
 config/Main.ini
 config/launcher-config.xml
 ```
 
-O arquivo `Main.ini` define valores padrão, enquanto os argumentos da CLI têm prioridade sobre a configuração.
+`Main.ini` defines default values, while command-line arguments take precedence over configuration values.
 
-O estado local do launcher, catálogos e hashes pode ser armazenado em `db/`. Diretórios de saída e artefatos de build não fazem parte do código-fonte versionado.
+The launcher may store local state, catalogues and hashes in `db/`. Output directories and build artifacts are not part of the versioned source code.
 
-## Fontes suportadas
+## Supported sources
 
-| Fonte | Descrição |
+| Source | Description |
 |---|---|
-| `NC_SOFT_JAPANESE` | Cliente Lineage II do Japão. |
-| `NC_SOFT_AMERICA` | Cliente Lineage II da América do Norte. |
-| `NC_SOFT_TAIWAN` | Cliente Lineage II de Taiwan. |
-| `NC_SOFT_KOREAN` | Cliente Lineage II da Coreia. |
-| `FOUR_GAME` | Distribuição 4game/Innova. |
-| `UP_NOVA_LAUNCHER` | Servidores privados baseados em UpNova. |
-| `AKUMU` | Espelho HTTP baseado em Akumu/Anubis. |
+| `NC_SOFT_JAPANESE` | Lineage II client for Japan. |
+| `NC_SOFT_AMERICA` | Lineage II client for North America. |
+| `NC_SOFT_TAIWAN` | Lineage II client for Taiwan. |
+| `NC_SOFT_KOREAN` | Lineage II client for Korea. |
+| `FOUR_GAME` | 4game/Innova distribution. |
+| `UP_NOVA_LAUNCHER` | UpNova-based private servers. |
+| `AKUMU` | Akumu/Anubis-based HTTP mirror. |
 
-## Diagnóstico e testes
+## Diagnostics and tests
 
-O projeto contém ferramentas auxiliares para testar geradores de manifestos, verificar URLs, consultar versões e comparar fontes. Esses arquivos são mantidos localmente para desenvolvimento e não fazem parte da distribuição principal.
+The project includes local development tools for testing manifest generators, checking URLs, querying versions and comparing sources. These tools are kept locally and are not part of the main distribution.
 
-As versões consultadas são versões de patch do launcher, não necessariamente números de protocolo do Lineage II.
+Queried versions are launcher patch versions and do not necessarily correspond to Lineage II protocol numbers.
 
-## Estado do projeto
+## Project status
 
-O launcher está em desenvolvimento ativo. As fontes de distribuição, formatos de manifesto e serviços regionais podem sofrer alterações conforme os provedores atualizam seus clientes e endpoints.
-
-## Histórico
-
-O desenvolvimento atual reúne a interface gráfica e o backend de download em um único projeto Java. Contribuidores e versões anteriores podem ser registrados nesta seção sem manter o histórico antigo misturado à branch principal atual.
+The launcher is under active development. Distribution sources, manifest formats and regional services may change as providers update their clients and endpoints.
