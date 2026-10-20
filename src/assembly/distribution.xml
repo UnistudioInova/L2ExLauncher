@@ -18,11 +18,11 @@
             <outputDirectory>/config</outputDirectory>
         </file>
         <file>
-            <source>${project.basedir}/dist/images/launcher-l2.jpg</source>
+            <source>${project.basedir}/images/launcher-l2.jpg</source>
             <outputDirectory>/images</outputDirectory>
         </file>
         <file>
-            <source>${project.basedir}/dist/images/launcher-multi.jpg</source>
+            <source>${project.basedir}/images/launcher-multi.jpg</source>
             <outputDirectory>/images</outputDirectory>
         </file>
         <file>

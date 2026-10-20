@@ -1,7 +1,7 @@
-import org.index.patchdownloader.config.MainConfigHolder;
-import org.index.patchdownloader.enums.CDNLink;
-import org.index.patchdownloader.model.holders.FileInfoHolder;
-import org.index.patchdownloader.model.linkgenerator.GeneralLinkGenerator;
+import org.l2explorer.launcher.backend.config.MainConfigHolder;
+import org.l2explorer.launcher.backend.enums.CDNLink;
+import org.l2explorer.launcher.backend.model.holders.FileInfoHolder;
+import org.l2explorer.launcher.backend.model.linkgenerator.GeneralLinkGenerator;
 
 import java.net.HttpURLConnection;
 import java.net.URI;

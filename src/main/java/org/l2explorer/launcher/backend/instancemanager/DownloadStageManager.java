@@ -1,0 +1,118 @@
+package org.l2explorer.launcher.backend.instancemanager;
+
+import java.net.http.HttpClient;
+import java.util.List;
+
+import org.l2explorer.launcher.backend.model.pipeline.download.AbstractDownloadStrategy;
+import org.l2explorer.launcher.backend.model.pipeline.download.AkumuDownloadStrategy;
+import org.l2explorer.launcher.backend.model.pipeline.download.CdnPartsDownloadStrategy;
+import org.l2explorer.launcher.backend.model.pipeline.download.ManifestRangeDownloadStrategy;
+import org.l2explorer.launcher.backend.model.pipeline.download.SelfSplitDownloadStrategy;
+import org.l2explorer.launcher.backend.model.pipeline.download.SingleDownloadStrategy;
+import org.l2explorer.launcher.backend.model.pipeline.enums.DownloadFailureType;
+import org.l2explorer.launcher.backend.model.pipeline.enums.TaskStage;
+import org.l2explorer.launcher.backend.model.pipeline.request.AbstractFileRequest;
+import org.l2explorer.launcher.backend.model.pipeline.retry.DownloadRetryHandler;
+
+/**
+ * EN: Download stage. Owns one shared, thread-safe {@link HttpClient} and a priority-ordered list of
+ *     {@link AbstractDownloadStrategy}s; for each task it picks the first strategy whose
+ *     {@code supports()} matches (akumu antibot session &gt; Content-Delivery-Network (CDN)-split parts &gt; self-split ranges &gt; single
+ *     GET) and delegates. Failures are classified for the base retry handler ({@link DownloadRetryHandler}).<br>
+ * RU: Стадия загрузки. Владеет одним общим потокобезопасным {@link HttpClient} и упорядоченным по приоритету
+ *     списком {@link AbstractDownloadStrategy}; для каждой задачи выбирает первую стратегию, чей
+ *     {@code supports()} подходит (antibot-сессия akumu &gt; части Content-Delivery-Network (CDN) &gt; диапазоны self-split &gt; один GET),
+ *     и делегирует. Сбои классифицируются для базового обработчика повторов ({@link DownloadRetryHandler}).<br>
+ **/
+public class DownloadStageManager extends AbstractStageManager
+{
+    private HttpClient _httpClient;
+    private List<AbstractDownloadStrategy> _strategies;
+    private AbstractDownloadStrategy _fallback;
+    private boolean _httpClosed;
+
+    private DownloadStageManager()
+    {
+        super(new DownloadRetryHandler());
+        rebuildHttpClient();
+    }
+
+    private void rebuildHttpClient()
+    {
+        _httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+        _fallback = new SingleDownloadStrategy(_httpClient);
+        _strategies = List.of(new AkumuDownloadStrategy(_httpClient),
+                new ManifestRangeDownloadStrategy(_httpClient),
+                new CdnPartsDownloadStrategy(_httpClient), new SelfSplitDownloadStrategy(_httpClient), _fallback);
+        _httpClosed = false;
+    }
+
+    @Override
+    public synchronized void start(int parallelism)
+    {
+        if (_httpClosed) rebuildHttpClient();
+        super.start(parallelism);
+    }
+
+    @Override
+    protected TaskStage stage()
+    {
+        return TaskStage.DOWNLOAD;
+    }
+
+    /**
+     * EN: Marks the task active and delegates its download to the first matching strategy. <br>
+     * RU: Помечает задачу активной и делегирует её загрузку первой подходящей стратегии. <br>
+     * ==================================================================<br>
+     * EN: @param task the task to download / RU: @param task задача для загрузки <br>
+     **/
+    @Override
+    protected void processTask(AbstractFileRequest task) throws Exception
+    {
+        task.markActive();
+        selectStrategy(task).download(task);
+    }
+
+    /**
+     * EN: Returns the first strategy (in priority order) that supports the task; the single-GET fallback is
+     *     last and always applies. <br>
+     * RU: Возвращает первую стратегию (по приоритету), поддерживающую задачу; запасной одиночный GET — в
+     *     конце и подходит всегда. <br>
+     * ==================================================================<br>
+     * EN: @param task the task to route / RU: @param task маршрутизируемая задача <br>
+     * @return <br>
+     *         {AbstractDownloadStrategy} - EN: the chosen strategy / RU: выбранная стратегия <br>
+     **/
+    private AbstractDownloadStrategy selectStrategy(AbstractFileRequest task)
+    {
+        for (AbstractDownloadStrategy strategy : _strategies)
+        {
+            if (strategy.supports(task))
+            {
+                return strategy;
+            }
+        }
+        return _fallback;
+    }
+
+    @Override
+    protected DownloadFailureType classify(Throwable throwable)
+    {
+        return DownloadFailureType.classifyDownload(throwable);
+    }
+
+    @Override
+    public void abort()
+    {
+        super.abort();
+        _httpClient.close();
+        _httpClosed = true;
+    }
+
+    private static final DownloadStageManager INSTANCE = new DownloadStageManager();
+
+    public static DownloadStageManager getInstance()
+    {
+        return INSTANCE;
+    }
+}
