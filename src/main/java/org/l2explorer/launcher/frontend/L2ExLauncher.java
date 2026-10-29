@@ -8,10 +8,13 @@ import org.xml.sax.InputSource;
 import org.tukaani.xz.LZMAInputStream;
 import com.formdev.flatlaf.FlatDarkLaf;
 import org.l2explorer.launcher.backend.DownloadOptions;
+import org.l2explorer.launcher.backend.EmbeddedAkumuDownloader;
 import org.l2explorer.launcher.backend.EmbeddedNcSoftDownloader;
 import org.l2explorer.launcher.backend.EmbeddedFourGameDownloader;
+import org.l2explorer.launcher.backend.model.akumu.AkumuCatalogCrawler;
 import org.l2explorer.launcher.backend.model.fourgame.FourGameManifestProvider;
 import org.l2explorer.launcher.backend.LauncherPaths;
+import org.l2explorer.launcher.backend.ReleaseDirectoryNamer;
 import org.l2explorer.launcher.backend.enums.CDNLink;
 import org.l2explorer.launcher.backend.model.versioncheck.NcUpdateVersionClient;
 import org.l2explorer.launcher.backend.model.versioncheck.NcVersionProbe;
@@ -24,6 +27,8 @@ import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.ImageIcon;
+import javax.swing.Icon;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -44,6 +49,7 @@ import javax.swing.SwingWorker;
 import javax.swing.JList;
 import javax.swing.ListCellRenderer;
 import javax.swing.UIManager;
+import javax.swing.SwingConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.plaf.basic.BasicComboBoxUI;
@@ -65,6 +71,7 @@ import java.awt.KeyboardFocusManager;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Image;
 import java.awt.RenderingHints;
 import java.awt.Rectangle;
 import java.awt.Cursor;
@@ -122,6 +129,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+
 import java.awt.image.BufferedImage;
 import java.beans.PropertyChangeListener;
 import javax.imageio.ImageIO;
@@ -153,7 +164,7 @@ public final class L2ExLauncher extends JFrame {
     private static final List<String> REGION_NAMES = List.of(
             "All Regions", "Korean", "North America", "Taiwan", "Japan", "Euro", "Russian");
     private static final List<String> BRANCH_NAMES = List.of(
-            "All Branches", "Live", "PTS / QA / TEST", "PTS2 / QA2 / Other Test");
+            "All Branches", "Live", "PTS / QA / TEST", "PTS2 / QA2 / Other Test", "Akumu");
     private static final Pattern LINEAGE_II_NAME = Pattern.compile(
             "\\blineage\\s*(?:2|ii)(?!\\s*m)\\b", Pattern.CASE_INSENSITIVE);
     private final JComboBox<String> regionBox = new JComboBox<>(REGION_NAMES.toArray(String[]::new));
@@ -174,6 +185,7 @@ public final class L2ExLauncher extends JFrame {
     private final AtomicInteger nextWorkerSlot = new AtomicInteger();
     private final StatusPill statusLabel = new StatusPill("Ready");
     private final JLabel heroTitle = new JLabel("Lineage II");
+    private final JLabel heroLogo = new JLabel();
     private final JLabel brandName = new JLabel();
     private final JLabel brandTag = new JLabel();
     private final LogoMark logoMark = new LogoMark();
@@ -182,7 +194,9 @@ public final class L2ExLauncher extends JFrame {
     private final Pill sourceChip = new Pill(Theme.FOURGAME, "—");
     private javax.swing.Timer ncSoftFileAnimation;
     private boolean extraGamesEnabled;
+    private String akumuFolderUrl = "";
     private List<ClientConfig> catalogClients = List.of();
+    private List<AkumuRelease> akumuCatalog = List.of();
     private boolean updatingRegionOptions;
     private boolean updatingBranchOptions;
     private final Map<CDNLink, List<Distribution>> probedNcVersions = new EnumMap<>(CDNLink.class);
@@ -392,17 +406,26 @@ public final class L2ExLauncher extends JFrame {
         chips.add(sourceChip);
         chips.add(Box.createHorizontalGlue());
 
-        JPanel hero = new JPanel();
-        hero.setOpaque(false);
-        hero.setLayout(new BoxLayout(hero, BoxLayout.Y_AXIS));
+        JPanel heroText = new JPanel();
+        heroText.setOpaque(false);
+        heroText.setLayout(new BoxLayout(heroText, BoxLayout.Y_AXIS));
         for (JComponent c : List.of(eyebrow, heroTitle, heroSub, chips)) c.setAlignmentX(Component.LEFT_ALIGNMENT);
-        hero.add(eyebrow);
-        hero.add(Box.createVerticalStrut(6));
-        hero.add(heroTitle);
-        hero.add(Box.createVerticalStrut(4));
-        hero.add(heroSub);
-        hero.add(Box.createVerticalStrut(16));
-        hero.add(chips);
+        heroText.add(eyebrow);
+        heroText.add(Box.createVerticalStrut(6));
+        heroText.add(heroTitle);
+        heroText.add(Box.createVerticalStrut(4));
+        heroText.add(heroSub);
+        heroText.add(Box.createVerticalStrut(16));
+        heroText.add(chips);
+
+        heroLogo.setHorizontalAlignment(SwingConstants.RIGHT);
+        heroLogo.setVerticalAlignment(SwingConstants.TOP);
+        heroLogo.setPreferredSize(new Dimension(375, 132));
+        heroLogo.setMinimumSize(new Dimension(180, 75));
+        JPanel hero = new JPanel(new BorderLayout(20, 0));
+        hero.setOpaque(false);
+        hero.add(heroText, BorderLayout.CENTER);
+        hero.add(heroLogo, BorderLayout.EAST);
 
         // ---------- log ----------
         ModernButton clearLog = new ModernButton("Clear", ModernButton.Style.SUBTLE, ModernButton.Glyph.NONE);
@@ -529,10 +552,12 @@ public final class L2ExLauncher extends JFrame {
                 org.l2explorer.launcher.backend.config.Config.PARALLEL_DOWNLOADING)), 1, 8, 1));
         JCheckBox verify = new JCheckBox("Verify files after download", checkMode.isSelected());
         JCheckBox multiGame = new JCheckBox("Extra Games", extraGamesEnabled);
+        JTextField akumuField = new JTextField(akumuFolderUrl, 28);
         styleDialogComponent(destination);
         styleDialogComponent(destinationField);
         styleDialogComponent(verify);
         styleDialogComponent(multiGame);
+        styleDialogComponent(akumuField);
         styleDialogComponent(workers);
         c.gridx = 0; c.gridy = 0; panel.add(destination, c);
         c.gridx = 1; panel.add(destinationField, c);
@@ -542,6 +567,44 @@ public final class L2ExLauncher extends JFrame {
         c.gridx = 1; panel.add(workers, c);
         c.gridx = 1; c.gridy = 2; panel.add(verify, c);
         c.gridx = 1; c.gridy = 3; panel.add(multiGame, c);
+        JLabel akumuLabel = new JLabel("Akumu folder URL");
+        styleDialogComponent(akumuLabel);
+        c.gridx = 0; c.gridy = 4; panel.add(akumuLabel, c);
+        c.gridx = 1; panel.add(akumuField, c);
+        ModernButton scanAkumu = new ModernButton("Scan catalog", ModernButton.Style.GHOST, ModernButton.Glyph.NONE);
+        ModernButton rebuildAkumu = new ModernButton("Rebuild", ModernButton.Style.GHOST, ModernButton.Glyph.NONE);
+        scanAkumu.addActionListener(e -> {
+            String url = akumuField.getText().trim();
+            if (url.isBlank()) {
+                append("Set an Akumu URL before scanning the catalog.");
+                return;
+            }
+            akumuFolderUrl = url;
+            try {
+                saveAkumuFolderSetting(url);
+            } catch (IOException ex) {
+                append("Warning: could not save Akumu URL: " + rootMessage(ex));
+            }
+            dialog.dispose();
+            scanAkumuCatalog(url, false);
+        });
+        c.gridx = 2; c.gridy = 4; panel.add(scanAkumu, c);
+        rebuildAkumu.addActionListener(e -> {
+            String url = akumuField.getText().trim();
+            if (url.isBlank()) {
+                append("Set an Akumu URL before rebuilding the catalog.");
+                return;
+            }
+            akumuFolderUrl = url;
+            try {
+                saveAkumuFolderSetting(url);
+            } catch (IOException ex) {
+                append("Warning: could not save Akumu URL: " + rootMessage(ex));
+            }
+            dialog.dispose();
+            scanAkumuCatalog(url, true);
+        });
+        c.gridx = 3; c.gridy = 4; panel.add(rebuildAkumu, c);
         ModernButton browse = new ModernButton("Browse...", ModernButton.Style.GHOST, ModernButton.Glyph.FOLDER);
         c.gridx = 2; c.gridy = 0; panel.add(browse, c);
         browse.addActionListener(e -> {
@@ -555,7 +618,7 @@ public final class L2ExLauncher extends JFrame {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttons.setOpaque(false);
         buttons.add(close); buttons.add(save);
-        c.gridx = 0; c.gridy = 4; c.gridwidth = 3; c.anchor = GridBagConstraints.EAST;
+        c.gridx = 0; c.gridy = 5; c.gridwidth = 3; c.anchor = GridBagConstraints.EAST;
         panel.add(buttons, c);
         close.addActionListener(e -> dialog.dispose());
         save.addActionListener(e -> {
@@ -566,16 +629,20 @@ public final class L2ExLauncher extends JFrame {
             org.l2explorer.launcher.backend.config.Config.PARALLEL_STORING = Math.min(2, count);
             if (verify.isSelected()) checkMode.setSelected(true); else fastMode.setSelected(true);
             boolean multiGameChanged = multiGame.isSelected() != extraGamesEnabled;
+            boolean akumuChanged = !Objects.equals(akumuFolderUrl, akumuField.getText().trim());
             extraGamesEnabled = multiGame.isSelected();
+            akumuFolderUrl = akumuField.getText().trim();
             updateBranding();
             try {
                 saveExtraGamesSetting(extraGamesEnabled);
+                saveAkumuFolderSetting(akumuFolderUrl);
                 saveLastDirectorySetting(outputField.getText());
             } catch (IOException ex) {
                 append("Warning: could not save launcher settings: " + rootMessage(ex));
             }
             dialog.dispose();
             if (multiGameChanged) refreshFourGameCatalog();
+            if (akumuChanged) loadClients();
         });
         dialog.setContentPane(panel);
         dialog.getContentPane().setBackground(Theme.BG_BOTTOM);
@@ -585,10 +652,48 @@ public final class L2ExLauncher extends JFrame {
         dialog.setVisible(true);
     }
 
+    private void scanAkumuCatalog(String url, boolean rebuild) {
+        if (activeWorker != null) return;
+        setBusy(true);
+        statusLabel.setText("Scanning Akumu catalog...");
+        activeWorker = new SwingWorker<Path, String>() {
+            @Override protected Path doInBackground() throws Exception {
+                return AkumuCatalogCrawler.scan(url, rebuild, this::publish);
+            }
+
+            @Override protected void process(List<String> chunks) {
+                chunks.forEach(L2ExLauncher.this::append);
+            }
+
+            @Override protected void done() {
+                try {
+                    append("Akumu catalog saved: " + get());
+                    statusLabel.setText("Akumu catalog ready");
+                    List<ClientConfig> refreshed = new ArrayList<>(catalogClients.stream()
+                            .filter(client -> !client.isAkumu()).toList());
+                    refreshed.addAll(akumuClients(akumuFolderUrl));
+                    catalogClients = List.copyOf(refreshed);
+                    applyRegionFilter();
+                } catch (CancellationException ex) {
+                    append("Akumu catalog scan cancelled.");
+                    statusLabel.setText("Cancelled");
+                } catch (Exception ex) {
+                    append("Akumu catalog error: " + rootMessage(ex));
+                    statusLabel.setText("Error");
+                } finally {
+                    activeWorker = null;
+                    setBusy(false);
+                }
+            }
+        };
+        activeWorker.execute();
+    }
+
     private void stopActiveWork() {
         SwingWorker<?, ?> worker = activeWorker;
         EmbeddedNcSoftDownloader.cancelActive();
         EmbeddedFourGameDownloader.cancelActive();
+        EmbeddedAkumuDownloader.cancelActive();
         Process process = activeExternalProcess;
         if (process != null) {
             process.destroy();
@@ -600,13 +705,25 @@ public final class L2ExLauncher extends JFrame {
     private void updateHero() {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         Distribution distribution = (Distribution) versionBox.getSelectedItem();
-        heroTitle.setText(client == null ? "Lineage II" : client.displayName());
+        String title = client == null ? "Lineage II" : client.displayName()
+                .replaceFirst("^\\[[A-Za-z]{2}\\]\\s*", "");
+        String protocol = distribution == null ? "" : Integer.toString(protocolFor(client, distribution));
+        if ("0".equals(protocol)) protocol = "";
+        if (!protocol.isBlank()) title += " - Protocol: " + protocol;
+        heroTitle.setText(title);
+        heroTitle.setIcon(client == null ? null : countryIcon(client));
+        heroTitle.setIconTextGap(10);
+        heroLogo.setIcon(loadClientLogo(client));
         versionChip.setText(distribution == null ? "—" : distribution.version);
-        typeChip.setText(distribution == null || distribution.type().isBlank()
-                ? "—" : distribution.type().toUpperCase(Locale.ROOT));
         boolean fourGame = client != null && !client.isNcSoft();
+        boolean akumu = client != null && client.isAkumu();
+        typeChip.setText(akumu ? "FULL" : distribution == null || distribution.type().isBlank()
+                ? "—" : distribution.type().toUpperCase(Locale.ROOT));
         sourceChip.setVisible(fourGame);
-        if (fourGame) {
+        if (akumu) {
+            sourceChip.setText("AKUMU");
+            sourceChip.setTint(Theme.FOURGAME);
+        } else if (fourGame) {
             sourceChip.setText("4GAME");
             sourceChip.setTint(Theme.FOURGAME);
         }
@@ -614,8 +731,50 @@ public final class L2ExLauncher extends JFrame {
             sourceChip.getParent().revalidate();
             sourceChip.getParent().repaint();
         }
+        if (activeWorker == null) individualButton.setEnabled(!akumu);
         updateVersionProbeVisibility(client);
         warnIfRegionalFourGame(client);
+    }
+
+    private static ImageIcon loadClientLogo(ClientConfig client) {
+        String fileName = logoFileName(client);
+        if (fileName == null) return null;
+        List<Path> candidates = new ArrayList<>();
+        candidates.add(Path.of("images", fileName));
+        candidates.add(Path.of(fileName));
+        try {
+            Path codeSource = Path.of(L2ExLauncher.class.getProtectionDomain()
+                    .getCodeSource().getLocation().toURI());
+            Path base = Files.isRegularFile(codeSource) ? codeSource.getParent() : codeSource;
+            for (Path parent = base; parent != null; parent = parent.getParent()) {
+                candidates.add(parent.resolve("images").resolve(fileName));
+                candidates.add(parent.resolve(fileName));
+            }
+        } catch (Exception ignored) { }
+        for (Path candidate : candidates) {
+            if (!Files.isRegularFile(candidate)) continue;
+            try {
+                BufferedImage image = ImageIO.read(candidate.toFile());
+                if (image == null) continue;
+                int maxWidth = 345, maxHeight = 117;
+                double scale = Math.min((double) maxWidth / image.getWidth(), (double) maxHeight / image.getHeight());
+                int width = Math.max(1, (int) Math.round(image.getWidth() * scale));
+                int height = Math.max(1, (int) Math.round(image.getHeight() * scale));
+                Image scaled = image.getScaledInstance(width, height, Image.SCALE_SMOOTH);
+                return new ImageIcon(scaled);
+            } catch (IOException ignored) { }
+        }
+        return null;
+    }
+
+    private static String logoFileName(ClientConfig client) {
+        if (client == null) return null;
+        String name = client.displayName().toLowerCase(Locale.ROOT);
+        if (client.isNcSoft()) return "l2-eu.png";
+        if (name.contains("essence")) return "l2ad-eu.png";
+        if (name.contains("classic") && name.contains("ru")) return "cl-ru.png";
+        if (name.contains("lineage 2") || name.contains("lineageii")) return "l2-eu.png";
+        return null;
     }
 
     private void loadPersistedProbedVersions() {
@@ -663,16 +822,68 @@ public final class L2ExLauncher extends JFrame {
         box.setMinimumSize(new Dimension(10, 44));
     }
 
+    private static final Map<String, ImageIcon> COUNTRY_ICON_CACHE = new HashMap<>();
+
+    private static Icon countryIcon(Object value) {
+        String code = countryCode(value);
+        if (code.isBlank()) return null;
+        return COUNTRY_ICON_CACHE.computeIfAbsent(code, L2ExLauncher::loadCountryIcon);
+    }
+
+    private static String countryCode(Object value) {
+        if (value instanceof ClientConfig client) {
+            Matcher matcher = Pattern.compile("^\\[([A-Za-z]{2})\\]").matcher(client.displayName());
+            return matcher.find() ? matcher.group(1).toLowerCase(Locale.ROOT) : "";
+        }
+        if (value instanceof String region) {
+            return switch (region) {
+                case "Korean" -> "kr";
+                case "North America" -> "na";
+                case "Taiwan" -> "tw";
+                case "Japan" -> "jp";
+                case "Euro" -> "eu";
+                case "Russian" -> "ru";
+                default -> "";
+            };
+        }
+        return "";
+    }
+
+    private static ImageIcon loadCountryIcon(String code) {
+        List<Path> candidates = new ArrayList<>();
+        candidates.add(Path.of("images", "icons", code + ".png"));
+        try {
+            Path codeSource = Path.of(L2ExLauncher.class.getProtectionDomain()
+                    .getCodeSource().getLocation().toURI());
+            Path base = Files.isRegularFile(codeSource) ? codeSource.getParent() : codeSource;
+            for (Path parent = base; parent != null; parent = parent.getParent()) {
+                candidates.add(parent.resolve("images").resolve("icons").resolve(code + ".png"));
+            }
+        } catch (Exception ignored) { }
+        for (Path candidate : candidates) {
+            if (!Files.isRegularFile(candidate)) continue;
+            try {
+                BufferedImage image = ImageIO.read(candidate.toFile());
+                if (image == null) continue;
+                Image scaled = image.getScaledInstance(22, 22, Image.SCALE_SMOOTH);
+                return new ImageIcon(scaled);
+            } catch (IOException ignored) { }
+        }
+        return null;
+    }
+
     private void loadClients() {
         try {
             Path config = ensureLauncherConfig();
             List<ClientConfig> clients;
             String localXml = Files.readString(config);
             extraGamesEnabled = readExtraGamesSetting(localXml);
+            akumuFolderUrl = readAkumuFolderSetting(localXml);
             String lastDirectory = readLastDirectorySetting(localXml);
             if (!lastDirectory.isBlank()) outputField.setText(lastDirectory);
             clients = new ArrayList<>(mergeNcSoftDefaults(readClients(localXml).stream()
                     .filter(ClientConfig::isNcSoft).toList()));
+            if (!akumuFolderUrl.isBlank()) clients.addAll(akumuClients(akumuFolderUrl));
             try {
                 clients.addAll(filterVisibleGames(updateAndReadFourGameCatalog()));
                 append("Loaded 4game catalogs from live + pts + pts2 XML");
@@ -717,7 +928,7 @@ public final class L2ExLauncher extends JFrame {
     private String defaultLauncherConfigXml() {
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                 + "<!-- Local cache generated by L2ExLauncher. It is refreshed from the 4game XML. -->\n"
-                + "<config EnableExtraGames=\"false\" LastDirectory=\"\">\n"
+                + "<config EnableExtraGames=\"false\" LastDirectory=\"\" AkumuFolderUrl=\"\">\n"
                 + "    <games>\n"
                 + "        <game id=\"1006\" name=\"LineageII EU\" display_name=\"Lineage 2 EU\" executable=\"l2.exe\" url=\"http://cdn.inn.ru/lineage2eu/patch/L2EU-p-260527-261006-1/distr/live\"/>\n"
                 + "        <game id=\"6\" name=\"LineageII\" display_name=\"Lineage 2 RU\" executable=\"l2.exe\" url=\"http://cdn.inn.ru/lineage2/patch/L2RU-p-260527-261006-1/distr/live\"/>\n"
@@ -743,6 +954,95 @@ public final class L2ExLauncher extends JFrame {
     private boolean readExtraGamesSetting(String xml) {
         Matcher matcher = Pattern.compile("<config\\b[^>]*\\bEnableExtraGames\\s*=\\s*[\\\"']([^\\\"']+)", Pattern.CASE_INSENSITIVE).matcher(xml);
         return matcher.find() && Boolean.parseBoolean(matcher.group(1).trim());
+    }
+
+    private String readAkumuFolderSetting(String xml) {
+        Matcher matcher = Pattern.compile("<config\\b[^>]*\\bAkumuFolderUrl\\s*=\\s*[\\\"']([^\\\"']*)", Pattern.CASE_INSENSITIVE).matcher(xml);
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private void saveAkumuFolderSetting(String value) throws IOException {
+        Path config = ensureLauncherConfig();
+        String xml = Files.readString(config, StandardCharsets.UTF_8);
+        Pattern attribute = Pattern.compile("(AkumuFolderUrl\\s*=\\s*[\\\"'])[^\\\"']*([\\\"'])", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = attribute.matcher(xml);
+        String replacement = value == null ? "" : value.trim();
+        String updated;
+        if (matcher.find()) {
+            StringBuffer buffer = new StringBuffer();
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(matcher.group(1) + replacement + matcher.group(2)));
+            matcher.appendTail(buffer);
+            updated = buffer.toString();
+        } else {
+            updated = xml.replaceFirst("<config\\b", "<config AkumuFolderUrl=\"" + Matcher.quoteReplacement(replacement) + "\"");
+        }
+        Files.writeString(config, updated, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    private List<ClientConfig> akumuClients(String folderUrl) {
+        Set<String> families = new HashSet<>();
+        Path catalog = LauncherPaths.databaseDirectory().resolve("akumu").resolve("catalog.json");
+        if (Files.isRegularFile(catalog)) {
+            try {
+                Object parsed = new JSONParser().parse(Files.readString(catalog, StandardCharsets.UTF_8));
+                if (parsed instanceof JSONObject root && root.get("releases") instanceof JSONArray releases) {
+                    for (Object value : releases) {
+                        if (value instanceof JSONObject item) {
+                            String family = akumuFamily(jsonString(item.get("releaseId")));
+                            if (!family.isBlank()) families.add(family);
+                        }
+                    }
+                }
+            } catch (Exception ignored) { }
+        }
+        if (families.isEmpty()) families.add("L2RU");
+        return families.stream().sorted(Comparator
+                        .comparing((String family) -> akumuCountry(family))
+                        .thenComparingInt(L2ExLauncher::akumuFamilyOrder))
+                .map(family -> new ClientConfig("[" + akumuCountry(family) + "] Lineage 2 Akumu ("
+                                + akumuBranchLabel(family) + ")",
+                        folderUrl, "l2.exe", false, family, "akumu", null))
+                .toList();
+    }
+
+    private static String akumuFamily(String releaseId) {
+        String upper = releaseId == null ? "" : releaseId.toUpperCase(Locale.ROOT);
+        for (String family : List.of("ADEU", "ADRU", "CLRU", "L2KR", "L2JP", "L2TW", "L2NA", "L2EU", "L2RU")) {
+            if (upper.startsWith(family + "-")) return family;
+        }
+        return "";
+    }
+
+    private static String akumuCountry(String family) {
+        if (family == null) return "";
+        return switch (family.toUpperCase(Locale.ROOT)) {
+            case "L2KR" -> "KR";
+            case "L2JP" -> "JP";
+            case "L2TW" -> "TW";
+            case "L2NA" -> "NA";
+            case "L2EU", "ADEU" -> "EU";
+            case "L2RU", "ADRU", "CLRU" -> "RU";
+            default -> "";
+        };
+    }
+
+    private static String akumuBranchLabel(String family) {
+        if (family == null) return "Live";
+        String upper = family.toUpperCase(Locale.ROOT);
+        if (upper.startsWith("AD")) return "Essence";
+        if (upper.startsWith("CL")) return "Classic";
+        return "Live";
+    }
+
+    private static int akumuFamilyOrder(String family) {
+        return switch (family) {
+            case "L2EU" -> 0;
+            case "ADEU" -> 1;
+            case "L2RU" -> 2;
+            case "ADRU" -> 3;
+            case "CLRU" -> 4;
+            default -> 10;
+        };
     }
 
     private void saveExtraGamesSetting(boolean enabled) throws IOException {
@@ -913,6 +1213,7 @@ public final class L2ExLauncher extends JFrame {
     }
 
     private static String branchOf(ClientConfig client) {
+        if (client.isAkumu()) return "Akumu";
         String signal = (client.displayName() + " " + client.environment() + " " + client.distrUrl())
                 .toLowerCase(Locale.ROOT).replace('\\', '/');
         if (hasMarker(signal, "pts2") || hasMarker(signal, "qa2") || hasMarker(signal, "clone")) {
@@ -1110,28 +1411,10 @@ public final class L2ExLauncher extends JFrame {
         writeCatalogJson(currentCatalog, current, xmlHash);
         if (changedGames > 0) append("4game catalog updated: " + changedGames + " game entr" + (changedGames == 1 ? "y" : "ies") + " changed (live + pts + pts2).");
 
-        List<ClientConfig> result = new ArrayList<>(current.stream().filter(ClientConfig::enabled).toList());
-        try (var dirs = Files.list(history)) {
-            dirs.filter(Files::isDirectory).sorted(Comparator.reverseOrder()).forEach(snapshot -> {
-                Path oldGame = snapshot.resolve("game.json");
-                if (!Files.isRegularFile(oldGame)) return;
-                try {
-                    ClientConfig client = readGameJson(oldGame);
-                    if (isRetiredFourGame(client.displayName(), client.distrUrl())) return;
-                    String key = catalogKey(client);
-                    Path currentGame = currentGames.resolve(key + ".json");
-                    String currentHash = Files.isRegularFile(currentGame)
-                            ? jsonField(Files.readString(currentGame), "gameSha256") : "";
-                    String historyHash = jsonField(Files.readString(oldGame), "gameSha256");
-                    // Não exibe snapshots que representam exatamente a versão atualmente instalada.
-                    // Isso também limpa visualmente históricos criados pelo comportamento antigo.
-                    if (!currentHash.isBlank() && currentHash.equalsIgnoreCase(historyHash)) return;
-                    String label = snapshot.getFileName().toString().split("-", 3)[0];
-                    if (client.enabled()) result.add(withDisplayName(client, client.displayName() + " [" + label + "]"));
-                } catch (Exception ignored) { }
-            });
-        }
-        return result;
+        // O histórico é persistido para auditoria/referência, mas não representa
+        // clientes adicionais. As versões devem aparecer no dropdown de
+        // distribuição depois que o usuário escolhe o jogo.
+        return current.stream().filter(ClientConfig::enabled).toList();
     }
 
     private String optionalFourGameXml(String url, Path cache, String label) throws IOException {
@@ -1209,11 +1492,12 @@ public final class L2ExLauncher extends JFrame {
             ClientConfig c = clients.get(i);
             Path gameFile = gamesDirectory.resolve(String.format(Locale.ROOT, "%03d-%s.json", i + 1, safeName(c.displayName())));
             writeGameJson(gameFile, c, hash);
-            json.append("    {\"displayName\": ").append(jsonQuote(c.displayName()))
+                    json.append("    {\"displayName\": ").append(jsonQuote(c.displayName()))
                     .append(", \"url\": ").append(jsonQuote(c.distrUrl()))
                     .append(", \"environment\": ").append(jsonQuote(c.environment()))
                     .append(", \"executable\": ").append(jsonQuote(c.executable()))
                     .append(", \"enabled\": ").append(c.enabled())
+                    .append(", \"directory\": ").append(jsonQuote(ReleaseDirectoryNamer.forFourGameUrl(c.distrUrl())))
                     .append(", \"json\": ").append(jsonQuote(file.getParent().relativize(gameFile).toString())).append("}")
                     .append(i + 1 == clients.size() ? "\n" : ",\n");
         }
@@ -1230,6 +1514,7 @@ public final class L2ExLauncher extends JFrame {
                 + "  \"environment\": " + jsonQuote(client.environment()) + ",\n"
                 + "  \"downloadLiveIni\": " + client.downloadLiveIni() + ",\n"
                 + "  \"enabled\": " + client.enabled() + ",\n"
+                + "  \"directory\": " + jsonQuote(ReleaseDirectoryNamer.forFourGameUrl(client.distrUrl())) + ",\n"
                 + "  \"executable\": " + jsonQuote(client.executable()) + "\n"
                 + "}\n";
         Files.writeString(file, json, StandardCharsets.UTF_8);
@@ -1292,16 +1577,39 @@ public final class L2ExLauncher extends JFrame {
     private void refreshVersions() {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         if (client == null || activeWorker != null) return;
+        if (client.isAkumu()) {
+            setBusy(true);
+            statusLabel.setText("Loading Akumu catalog...");
+            activeWorker = new SwingWorker<List<Distribution>, Void>() {
+                @Override protected List<Distribution> doInBackground() throws Exception {
+                    return loadAkumuDistributions(client);
+                }
+
+                @Override protected void done() {
+                    try {
+                        List<Distribution> releases = get();
+                        versionBox.setModel(new DefaultComboBoxModel<>(releases.toArray(Distribution[]::new)));
+                        if (!releases.isEmpty()) versionBox.setSelectedIndex(0);
+                        append("Akumu distributions loaded: " + releases.size()
+                                + " release(s), filtered by country and branch in each item.");
+                        statusLabel.setText(releases.isEmpty() ? "Akumu catalog empty" : "Akumu catalog ready");
+                    } catch (Exception ex) {
+                        versionBox.setModel(new DefaultComboBoxModel<>());
+                        append("Error reading Akumu catalog: " + rootMessage(ex));
+                        statusLabel.setText("Akumu catalog unavailable");
+                    } finally {
+                        activeWorker = null;
+                        setBusy(false);
+                        updateHero();
+                    }
+                }
+            };
+            activeWorker.execute();
+            return;
+        }
         if (client.isNcSoft()) {
             CDNLink selectedCdn = ncCdnType(client.displayName());
             List<Distribution> cachedVersions = probedNcVersions.get(selectedCdn);
-            if (cachedVersions != null && !cachedVersions.isEmpty()) {
-                versionBox.setModel(new DefaultComboBoxModel<>(cachedVersions.toArray(Distribution[]::new)));
-                versionBox.setSelectedIndex(0);
-                statusLabel.setText("Versions ready");
-                updateHero();
-                return;
-            }
             setBusy(true);
             statusLabel.setText("Checking NCSoft version...");
             append("Checking current NCSoft version over TCP 27500 for " + client.displayName());
@@ -1313,23 +1621,34 @@ public final class L2ExLauncher extends JFrame {
 
                 @Override protected void done() {
                     int version = client.patchVersion() == null ? 0 : client.patchVersion();
+                    String source = "configured fallback";
                     try {
                         NcUpdateVersionClient.VersionInfo info = get();
                         version = info.version();
+                        source = "live update service";
                         append("NCSoft " + client.displayName() + ": current patch " + version
                                 + (info.hash() == null ? "" : " (manifest SHA-1 " + info.hash() + ")") + ".");
                     } catch (Exception ex) {
+                        if (cachedVersions != null && !cachedVersions.isEmpty()) {
+                            int cachedLatest = cachedVersions.stream()
+                                    .mapToInt(item -> parseVersionOrZero(item.version))
+                                    .max().orElse(0);
+                            if (cachedLatest > version) {
+                                version = cachedLatest;
+                                source = "saved probe catalog";
+                            }
+                        }
                         if (version > 0) {
-                            append("Warning: current NCSoft version check failed; using configured patch "
+                            append("Warning: current NCSoft version check failed; using " + source + " v"
                                     + version + ": " + rootMessage(ex));
                         } else {
                             append("Error reading NCSoft live version: " + rootMessage(ex));
                         }
                     }
                     if (version > 0) {
-                        List<Distribution> ncVersions = List.of(new Distribution(
-                                Integer.toString(version), "ncsoft", "NCSoft public manifest"));
+                        List<Distribution> ncVersions = mergeNcSoftVersions(cachedVersions, version, client);
                         versionBox.setModel(new DefaultComboBoxModel<>(ncVersions.toArray(Distribution[]::new)));
+                        versionBox.setSelectedIndex(0);
                     }
                     activeWorker = null;
                     setBusy(false);
@@ -1363,6 +1682,67 @@ public final class L2ExLauncher extends JFrame {
         activeWorker.execute();
     }
 
+    @SuppressWarnings("unchecked")
+    private List<Distribution> loadAkumuDistributions(ClientConfig client) throws IOException {
+        List<AkumuRelease> all = readAkumuReleases();
+        akumuCatalog = List.copyOf(all);
+        String selectedCountry = countryCode(client).toUpperCase(Locale.ROOT);
+        String selectedFamily = client.isAkumu() ? client.environment().toUpperCase(Locale.ROOT) : "";
+        List<AkumuRelease> loaded = all.stream()
+                .filter(release -> selectedCountry.isBlank() || selectedCountry.equals(release.country()))
+                .filter(release -> selectedFamily.isBlank() || selectedFamily.equals(akumuFamily(release.releaseId())))
+                .sorted(Comparator
+                        .comparing(AkumuRelease::country, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(AkumuRelease::branch, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(AkumuRelease::date, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(AkumuRelease::gameRevision,
+                                Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(AkumuRelease::releaseId, Comparator.reverseOrder()))
+                .toList();
+        return loaded.stream().map(AkumuRelease::toDistribution).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<AkumuRelease> readAkumuReleases() throws IOException {
+        Path catalog = LauncherPaths.databaseDirectory().resolve("akumu").resolve("catalog.json");
+        if (!Files.isRegularFile(catalog)) {
+            throw new IOException("Akumu catalog not found: " + catalog.toAbsolutePath());
+        }
+        try {
+            Object parsed = new JSONParser().parse(Files.readString(catalog, StandardCharsets.UTF_8));
+            if (!(parsed instanceof JSONObject root) || !(root.get("releases") instanceof JSONArray releases)) {
+                throw new IOException("Invalid Akumu catalog format");
+            }
+            List<AkumuRelease> loaded = new ArrayList<>();
+            for (Object value : releases) {
+                if (!(value instanceof JSONObject item)) continue;
+                String releaseId = jsonString(item.get("releaseId"));
+                String url = jsonString(item.get("url"));
+                if (releaseId.isBlank() || url.isBlank()) continue;
+                String country = jsonString(item.get("country")).toUpperCase(Locale.ROOT);
+                loaded.add(new AkumuRelease(releaseId,
+                        country,
+                        jsonString(item.get("branch")),
+                        jsonInteger(item.get("protocol")),
+                        jsonString(item.get("date")),
+                        jsonInteger(item.get("gameRevision")), url));
+            }
+            return List.copyOf(loaded);
+        } catch (IOException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IOException("Could not parse Akumu catalog", ex);
+        }
+    }
+
+    private static String jsonString(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static Integer jsonInteger(Object value) {
+        return value instanceof Number number ? number.intValue() : null;
+    }
+
     private void refreshFourGameCatalog() {
         if (activeWorker != null) return;
         Path config;
@@ -1381,8 +1761,10 @@ public final class L2ExLauncher extends JFrame {
             @Override protected List<ClientConfig> doInBackground() throws Exception {
                 String localXml = Files.readString(config);
                 extraGamesEnabled = readExtraGamesSetting(localXml);
+                akumuFolderUrl = readAkumuFolderSetting(localXml);
                 List<ClientConfig> clients = new ArrayList<>(mergeNcSoftDefaults(readClients(localXml).stream()
                         .filter(ClientConfig::isNcSoft).toList()));
+                if (!akumuFolderUrl.isBlank()) clients.addAll(akumuClients(akumuFolderUrl));
                 try {
                     clients.addAll(filterVisibleGames(updateAndReadFourGameCatalog()));
                     remoteLoaded = true;
@@ -1578,6 +1960,48 @@ public final class L2ExLauncher extends JFrame {
             if (!options.isEmpty()) versionBox.setSelectedIndex(0);
             updateHero();
         }
+    }
+
+    private static int parseVersionOrZero(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private List<Distribution> mergeNcSoftVersions(List<Distribution> cached, int liveVersion,
+                                                    ClientConfig client) {
+        java.util.Map<Integer, Distribution> byVersion = new java.util.TreeMap<>(java.util.Comparator.reverseOrder());
+        if (cached != null) {
+            for (Distribution item : cached) {
+                int version = parseVersionOrZero(item.version);
+                if (version > 0) byVersion.put(version, item);
+            }
+        }
+        // Taiwan is the only NCSoft catalog where the live probe can skip
+        // revisions that are already represented by Akumu snapshots. Keep
+        // this bridge scoped to TW so other Live dropdowns remain CDN-only.
+        if (client != null && isLineage2(client)
+                && client.displayName().toUpperCase(Locale.ROOT).startsWith("[TW]")) {
+            try {
+                for (AkumuRelease release : readAkumuReleases()) {
+                    if (!countryCode(client).equalsIgnoreCase(release.country())
+                            || release.gameRevision() == null || release.gameRevision() <= 0) continue;
+                    Distribution item = new Distribution(Integer.toString(release.gameRevision()),
+                            "ncsoft", "NCSoft public manifest");
+                    item.fields.put("protocol", release.protocol() == null ? ""
+                            : Integer.toString(release.protocol()));
+                    item.fields.put("gameRevision", Integer.toString(release.gameRevision()));
+                    byVersion.putIfAbsent(release.gameRevision(), item);
+                }
+            } catch (IOException ignored) { }
+        }
+        if (liveVersion > 0) {
+            byVersion.put(liveVersion, new Distribution(
+                    Integer.toString(liveVersion), "ncsoft", "NCSoft public manifest"));
+        }
+        return new ArrayList<>(byVersion.values());
     }
 
     private int configuredNcVersion(String prefix) {
@@ -1830,9 +2254,10 @@ public final class L2ExLauncher extends JFrame {
             try { saveLastDirectorySetting(outputField.getText()); }
             catch (IOException ex) { append("Warning: could not save last directory: " + rootMessage(ex)); }
         }
-        Path output = outputField.getText().isBlank()
+        Path baseOutput = outputField.getText().isBlank()
                 ? LauncherPaths.defaultClientDirectory(client.displayName)
                 : Path.of(outputField.getText());
+        Path output = releaseOutput(baseOutput, client, distribution);
         configureWorkerProgress(selectedDownloadOptions().downloadWorkers());
         setBusy(true);
         progress.setValue(0);
@@ -1894,10 +2319,7 @@ public final class L2ExLauncher extends JFrame {
         Path output = outputField.getText().isBlank()
                 ? LauncherPaths.defaultClientDirectory(client.displayName)
                 : Path.of(outputField.getText());
-        // The selected distribution identifies the manifest to apply, not the
-        // installation directory. The user may call the directory anything
-        // (and can keep it fixed while selecting newer partial releases).
-        Path releaseOutput = output;
+        Path releaseOutput = releaseOutput(output, client, distribution);
         configureWorkerProgress(selectedDownloadOptions().downloadWorkers());
         setBusy(true);
         progress.setValue(0);
@@ -1910,6 +2332,14 @@ public final class L2ExLauncher extends JFrame {
         activeWorker = new SwingWorker<Void, String>() {
             @Override protected Void doInBackground() throws Exception {
                 if (client.isNcSoft()) runNcSoftDownload(client, distribution, releaseOutput, this, probeOnly, resourceOnly);
+                else if (client.isAkumu()) {
+                    if (probeOnly || resourceOnly) throw new IOException("Probe/resource mode is not available for Akumu.");
+                    String torrentUrl = distribution.resolvedUrl == null || distribution.resolvedUrl.isBlank()
+                            ? client.distrUrl() : distribution.resolvedUrl;
+                    int exit = EmbeddedAkumuDownloader.download(torrentUrl, releaseOutput,
+                            selectedDownloadOptions(), L2ExLauncher.this::handleDownloadOutput);
+                    if (exit != 0) throw new IOException("Akumu downloader failed with code " + exit);
+                }
                 else {
                     Downloader downloader = new Downloader(client.distrUrl, releaseOutput, this, distribution,
                             client.downloadLiveIni, client.environment, selectedDownloadOptions());
@@ -1950,16 +2380,103 @@ public final class L2ExLauncher extends JFrame {
         activeWorker.execute();
     }
 
+    private Path releaseOutput(Path base, ClientConfig client, Distribution distribution) {
+        String directory = releaseDirectoryName(client, distribution);
+        Path normalized = base.toAbsolutePath().normalize();
+        if (normalized.getFileName() != null && normalized.getFileName().toString().equals(directory)) {
+            return normalized;
+        }
+        return normalized.resolve(directory);
+    }
+
+    private String releaseDirectoryName(ClientConfig client, Distribution distribution) {
+        int protocol = protocolFor(client, distribution);
+        if (client.isAkumu()) return safeName(distribution.version);
+        if (!client.isNcSoft()) return ReleaseDirectoryNamer.forFourGameVersion(distribution.version, protocol);
+
+        int patch = parseVersionOrZero(distribution.version);
+        if (isLineage2(client)) {
+            try {
+                for (Distribution candidate : loadAkumuDistributions(client)) {
+                    if (Integer.toString(patch).equals(candidate.fields.get("gameRevision"))) {
+                        return safeName(candidate.version);
+                    }
+                }
+            } catch (IOException ignored) { }
+        }
+        return ReleaseDirectoryNamer.forNcSoft(client.displayName(), patch, protocol);
+    }
+
+    /**
+     * Resolves protocol metadata independently from the downloader.  Akumu is
+     * the cross-reference for releases that originate in NCSoft/4Game, so a
+     * missing protocol in their own manifest does not make the directory name
+     * lose the P### component.
+     */
+    private int protocolFor(ClientConfig client, Distribution distribution) {
+        if (client == null || distribution == null) return 0;
+        int direct = parseVersionOrZero(distribution.fields.get("protocol"));
+        if (direct > 0) return direct;
+        try {
+            List<AkumuRelease> releases = akumuCatalog;
+            if (releases == null || releases.isEmpty()) {
+                Path catalog = LauncherPaths.databaseDirectory().resolve("akumu").resolve("catalog.json");
+                if (!Files.isRegularFile(catalog)) return 0;
+                loadAkumuDistributions(client);
+                releases = akumuCatalog;
+            }
+            if (releases == null) return 0;
+            String version = distribution.version.trim();
+            for (AkumuRelease release : releases) {
+                if (release.protocol() == null || release.protocol() <= 0) continue;
+                if (matchesAkumuVersion(release.releaseId(), version)) {
+                    return release.protocol();
+                }
+            }
+            int patch = parseVersionOrZero(version);
+            if (patch > 0) {
+                String country = countryCode(client);
+                AkumuRelease nearest = null;
+                for (AkumuRelease release : releases) {
+                    if (release.protocol() == null || release.protocol() <= 0) continue;
+                    if (!country.isBlank() && !country.equalsIgnoreCase(release.country())) continue;
+                    int revision = release.gameRevision() == null ? 0 : release.gameRevision();
+                    if (patch == revision)
+                        return release.protocol();
+                    if (revision <= patch && (nearest == null
+                            || revision > (nearest.gameRevision() == null ? 0 : nearest.gameRevision()))) {
+                        nearest = release;
+                    }
+                }
+                if (nearest != null) return nearest.protocol();
+            }
+        } catch (IOException | RuntimeException ignored) { }
+        return 0;
+    }
+
+    private static boolean matchesAkumuVersion(String releaseId, String version) {
+        if (releaseId == null || version == null) return false;
+        String akumuLower = releaseId.trim().toLowerCase(Locale.ROOT);
+        String versionLower = version.trim().toLowerCase(Locale.ROOT);
+        if (akumuLower.equals(versionLower)) return true;
+        // Akumu inserts "P###-DYYYYMMDD-P-" between the game family and
+        // the original 4Game release. Normalize both forms before comparing.
+        String normalizedAkumu = akumuLower.replaceFirst(
+                "^([a-z0-9]+)-p\\d+-d\\d{8}-p-", "$1-");
+        String normalizedVersion = versionLower.replaceFirst(
+                "^([a-z0-9]+)-p-", "$1-");
+        return normalizedAkumu.equals(normalizedVersion)
+                || akumuLower.endsWith("-" + versionLower)
+                || akumuLower.contains("-" + versionLower + "-");
+    }
+
     private void startCheck() {
         ClientConfig client = (ClientConfig) clientBox.getSelectedItem();
         Distribution distribution = (Distribution) versionBox.getSelectedItem();
         if (client == null || distribution == null) { append("Choose a client and a distribution."); return; }
         Path base = outputField.getText().isBlank()
                 ? LauncherPaths.defaultClientDirectory(client.displayName()) : Path.of(outputField.getText());
-        // Check the installation selected by the user directly. Do not derive
-        // a second directory from the release name: that made renaming a game
-        // folder look like a new installation.
-        Path output = base;
+        Path output = releaseOutput(base, client, distribution);
         configureWorkerProgress(Math.max(1, org.l2explorer.launcher.backend.config.Config.PARALLEL_DOWNLOADING));
         setBusy(true);
         append("Checking " + client.displayName() + " / " + distribution.version + " at "
@@ -2246,7 +2763,9 @@ public final class L2ExLauncher extends JFrame {
     private void setBusy(boolean busy) {
         clientBox.setEnabled(!busy); versionBox.setEnabled(!busy); refreshButton.setEnabled(!busy);
         versionProbeButton.setEnabled(!busy && versionProbeButton.isVisible());
-        probeButton.setEnabled(!busy); resourceButton.setEnabled(!busy); individualButton.setEnabled(!busy);
+        ClientConfig selectedClient = (ClientConfig) clientBox.getSelectedItem();
+        probeButton.setEnabled(!busy); resourceButton.setEnabled(!busy);
+        individualButton.setEnabled(!busy && (selectedClient == null || !selectedClient.isAkumu()));
         checkButton.setEnabled(!busy); downloadButton.setEnabled(!busy);
         launchButton.setEnabled(!busy); cancelButton.setEnabled(busy);
     }
@@ -2258,9 +2777,7 @@ public final class L2ExLauncher extends JFrame {
                 ? LauncherPaths.defaultClientDirectory(client.displayName)
                 : Path.of(outputField.getText());
         Distribution distribution = (Distribution) versionBox.getSelectedItem();
-        // The dropdown version selects the manifest; the destination field is
-        // the installation root, independent of the release name.
-        Path root = baseRoot;
+        Path root = distribution == null ? baseRoot : releaseOutput(baseRoot, client, distribution);
         Path absoluteRoot = root.toAbsolutePath().normalize();
         String configuredExecutable = client.isNcSoft() ? "system/L2.bin" : client.executable;
         Path executable = absoluteRoot.resolve(configuredExecutable).normalize();
@@ -3636,8 +4153,16 @@ public final class L2ExLauncher extends JFrame {
             g2.setFont(comboBox.getFont());
             g2.setColor(comboBox.isEnabled() ? Theme.TEXT : Theme.DIM);
             FontMetrics fm = g2.getFontMetrics();
-            String text = Theme.ellipsize(value.toString(), fm, bounds.width - 16);
-            g2.drawString(text, bounds.x + 14, bounds.y + (bounds.height - fm.getHeight()) / 2 + fm.getAscent());
+            Icon icon = countryIcon(value);
+            int iconSize = icon == null ? 0 : 22;
+            int gap = icon == null ? 0 : 8;
+            String text = Theme.ellipsize(value.toString(), fm, bounds.width - 16 - iconSize - gap);
+            int textX = bounds.x + 14 + iconSize + gap;
+            if (icon != null) {
+                icon.paintIcon(comboBox, g2, bounds.x + 14,
+                        bounds.y + (bounds.height - iconSize) / 2);
+            }
+            g2.drawString(text, textX, bounds.y + (bounds.height - fm.getHeight()) / 2 + fm.getAscent());
             g2.dispose();
         }
 
@@ -3678,6 +4203,9 @@ public final class L2ExLauncher extends JFrame {
             label.setOpaque(true);
             label.setBackground(selected ? Theme.POPUP_SELECTED : Theme.POPUP);
             label.setForeground(Theme.TEXT);
+            Icon icon = countryIcon(value);
+            label.setIcon(icon);
+            label.setIconTextGap(icon == null ? 0 : 8);
             label.setPreferredSize(new Dimension(10, 36));
             return label;
         }
@@ -3722,9 +4250,40 @@ public final class L2ExLauncher extends JFrame {
             this(displayName, distrUrl, executable, downloadLiveIni, environment, source, patchVersion, true);
         }
         boolean isNcSoft() { return "ncsoft".equalsIgnoreCase(source); }
+        boolean isAkumu() { return "akumu".equalsIgnoreCase(source); }
         @Override public String toString() { return displayName; }
     }
-    private static final class Distribution { final String version; final java.util.Map<String, String> fields = new java.util.HashMap<>(); String resolvedUrl; Distribution(String version) { this.version = version; } Distribution(String version, String type, String label) { this.version = version; fields.put("type", type); fields.put("label", label); } String type() { return fields.getOrDefault("type", ""); } String env() { return fields.getOrDefault("env", ""); } String files() { return fields.getOrDefault("files", ""); } @Override public String toString() { return version + " [" + type() + "]"; } }
+    private record AkumuRelease(String releaseId, String country, String branch, Integer protocol,
+                                 String date, Integer gameRevision, String torrentUrl) {
+        Distribution toDistribution() {
+            Distribution distribution = new Distribution(releaseId, "akumu", country + " / " + branch);
+            distribution.resolvedUrl = torrentUrl;
+            distribution.fields.put("country", country);
+            distribution.fields.put("branch", branch);
+            distribution.fields.put("protocol", protocol == null ? "" : Integer.toString(protocol));
+            distribution.fields.put("date", date);
+            distribution.fields.put("gameRevision", gameRevision == null ? "" : Integer.toString(gameRevision));
+            return distribution;
+        }
+    }
+    private static final class Distribution {
+        final String version;
+        final java.util.Map<String, String> fields = new java.util.HashMap<>();
+        String resolvedUrl;
+        Distribution(String version) { this.version = version; }
+        Distribution(String version, String type, String label) {
+            this.version = version;
+            fields.put("type", type);
+            fields.put("label", label);
+        }
+        String type() { return fields.getOrDefault("type", ""); }
+        String env() { return fields.getOrDefault("env", ""); }
+        String files() { return fields.getOrDefault("files", ""); }
+        @Override public String toString() {
+            String label = fields.getOrDefault("label", "");
+            return label.isBlank() ? version + " [" + type() + "]" : version + " [" + label + "]";
+        }
+    }
     private record Entry(boolean compressed, String path, String sha1, String pack, long offset, int storedSize,
                          int originalSize, String sourceBase) {
         Entry(boolean compressed, String path, String sha1, String pack, long offset, int storedSize, int originalSize) {

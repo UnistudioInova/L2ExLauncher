@@ -135,6 +135,15 @@ public final class AnubisClient
         }
     }
 
+    /** Drops the shared session when the source URL changes between catalog scans. */
+    public static void reset()
+    {
+        synchronized (AnubisClient.class)
+        {
+            _instance = null;
+        }
+    }
+
     /**
      * EN: Fetches the URL over the shared session, transparently passing Anubis and backing off on rate/server
      *     errors. Bounded by the connection gate. Returns the successful {@link HttpResponse} so the caller can
